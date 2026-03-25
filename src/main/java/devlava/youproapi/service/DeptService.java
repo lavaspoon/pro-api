@@ -7,7 +7,9 @@ import devlava.youproapi.dto.DeptResponse;
 import devlava.youproapi.dto.MemberListResponse;
 import devlava.youproapi.repository.TbLmsDeptRepository;
 import devlava.youproapi.repository.TbLmsMemberRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashMap;

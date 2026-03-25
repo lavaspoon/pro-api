@@ -1,1 +1,61 @@
-spring.application.name=youpro-api
+spring:
+  # ─── Auto-Config 제외 ────────────────────────────────────────────────────
+  # Primary / STT 두 개 DataSource를 수동 설정하므로 JPA 자동 구성은 비활성화.
+  # DataSourceDecoratorAutoConfiguration(p6spy)은 제외하지 않아 SQL 로깅 유지.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+
+  # ─── Primary DataSource (ragdb) ──────────────────────────────────────────
+  datasource:
+    primary:
+      jdbc-url: jdbc:postgresql://localhost:5433/ragdb
+      username: raguser
+      password: ragpass
+      driver-class-name: org.postgresql.Driver
+      hikari:
+        pool-name: primary-pool
+        maximum-pool-size: 10
+        minimum-idle: 2
+        connection-timeout: 30000
+        idle-timeout: 600000
+        max-lifetime: 1800000
+
+    # ─── Secondary DataSource (st_etc / STT) ─────────────────────────────
+    stt:
+      jdbc-url: jdbc:postgresql://localhost:5433/st_etc
+      username: raguser
+      password: ragpass
+      driver-class-name: org.postgresql.Driver
+      hikari:
+        pool-name: stt-pool
+        maximum-pool-size: 5
+        minimum-idle: 1
+        connection-timeout: 30000
+        idle-timeout: 600000
+        max-lifetime: 1800000
+
+  # ─── JPA 공통 프로퍼티 ──────────────────────────────────────────────────
+  jpa:
+    open-in-view: false
+
+# ─── p6spy (gavlyukovskiy datasource decorator) ──────────────────────────
+# spring.datasource 하위가 아닌 최상위 decorator 키로 설정해야 동작함
+decorator:
+  datasource:
+    p6spy:
+      enable-logging: true
+      logging: slf4j
+      log-format: "%(currentTime) | %(executionTime)ms | %(category) | %(sqlSingleLine)"
+
+logging:
+  level:
+    root: INFO
+    devlava.youproapi: DEBUG
+    # Hibernate SQL 출력 (p6spy 미동작 시 백업용)
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    # p6spy 자체 로그
+    p6spy: INFO
+    com.p6spy.engine.spy: INFO

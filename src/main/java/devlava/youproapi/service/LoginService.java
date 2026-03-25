@@ -1,11 +1,11 @@
 package devlava.youproapi.service;
 
 import devlava.youproapi.domain.TbLmsMember;
-import devlava.youproapi.domain.TbStmsRole;
+import devlava.youproapi.domain.TbYouProRole;
 import devlava.youproapi.dto.LoginResponse;
 import devlava.youproapi.exception.UserNotFoundException;
 import devlava.youproapi.repository.TbLmsMemberRepository;
-import devlava.youproapi.repository.TbStmsRoleRepository;
+import devlava.youproapi.repository.TbYouProRoleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class LoginService {
 
     private final TbLmsMemberRepository memberRepository;
-    private final TbStmsRoleRepository roleRepository;
+    private final TbYouProRoleRepository roleRepository;
 
     /**
      * 사용자 로그인 (skid로 사용자 정보 조회)
@@ -35,7 +35,7 @@ public class LoginService {
     private LoginResponse convertToLoginResponse(TbLmsMember member, String skid) {
         // TbStmsRole 조회하여 권한 확인
         String role = "담당자"; // 기본값
-        java.util.Optional<TbStmsRole> stmsRole = roleRepository.findBySkid(skid);
+        java.util.Optional<TbYouProRole> stmsRole = roleRepository.findBySkid(skid);
         if (stmsRole.isPresent()) {
             String roleValue = stmsRole.get().getRole();
             if ("관리자".equals(roleValue)) {

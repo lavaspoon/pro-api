@@ -7,7 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 
 @Repository
-public interface TbStmsRoleRepository extends JpaRepository<TbYouProRole, String> {
+public interface TbYouProRoleRepository extends JpaRepository<TbYouProRole, String> {
     /**
      * skid로 역할 조회
      */

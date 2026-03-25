@@ -1,17 +1,15 @@
-package devlava.stmsapi.domain;
+package devlava.youproapi.domain;
 
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import javax.persistence.*;
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
 @Getter
 @Entity
 @NoArgsConstructor
-@Table(name = "TB_STMS_ROLE")
-public class TbStmsRole {
+@Table(name = "TB_YOUPRO_ROLE")
+public class TbYouProRole {
 
     @Id
     @Column(name = "skid")

@@ -1,16 +1,21 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '3.5.12'
+    id 'org.springframework.boot' version '2.7.6'
     id 'io.spring.dependency-management' version '1.1.7'
 }
 
 group = 'devlava'
 version = '0.0.1-SNAPSHOT'
-description = 'youpro-api'
 
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
     }
 }
 
@@ -20,6 +25,23 @@ repositories {
 
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.postgresql:postgresql'
+
+    implementation 'com.github.gavlyukovskiy:p6spy-spring-boot-starter:1.9.0'
+    implementation 'com.github.gavlyukovskiy:datasource-decorator-spring-boot-autoconfigure:1.9.0'
+    implementation group: 'org.modelmapper', name: 'modelmapper', version: '2.3.8'
+    implementation 'com.querydsl:querydsl-jpa:5.0.0'
+    annotationProcessor "com.querydsl:querydsl-apt:5.0.0:jpa"
+    annotationProcessor "jakarta.annotation:jakarta.annotation-api"
+    annotationProcessor "javax.persistence:javax.persistence-api"
+
+    // SSL 자체 서명 인증서 허용 (내부 SMS API 호출용)
+    implementation 'org.apache.httpcomponents:httpclient:4.5.14'
+
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
