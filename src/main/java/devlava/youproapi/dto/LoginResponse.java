@@ -1,0 +1,20 @@
+package devlava.youproapi.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class LoginResponse {
+    private String skid;
+    private String userName;
+    private String role;
+    private Integer comCode;
+    private Integer deptIdx;
+    private String deptName;
+    private Integer mbPosition;
+}
