@@ -33,8 +33,14 @@ public class AdminDashboardResponse {
         private Integer id;            // deptIdx
         private String name;           // deptName
         private int memberCount;
+        /** 해당 연도 팀 소속 접수(신청) 건수 합 */
+        private long totalSubmitted;
         private long totalSelected;
         private double avgSelected;
+        /** 이번 달 팀 소속 접수 건수 합 */
+        private long monthlySubmitted;
+        /** 이번 달 팀 소속 선정 건수 합 */
+        private long monthlySelected;
         /** 팀 소속 구성원의 검토 대기 건수 합 */
         private long pendingCount;
         /** 해당 연도 판정 완료(선정+비선정) 건수 */

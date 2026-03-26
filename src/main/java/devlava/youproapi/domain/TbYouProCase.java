@@ -51,7 +51,7 @@ public class TbYouProCase {
     /**
      * 상태.
      * <ul>
-     *   <li>{@code "pending"} — 검토 중</li>
+     *   <li>{@code "pending"} — 대기중</li>
      *   <li>{@code "selected"} — 선정</li>
      *   <li>{@code "rejected"} — 비선정</li>
      * </ul>

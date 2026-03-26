@@ -25,7 +25,11 @@ public class TeamDetailResponse {
         private String id;             // skid
         private String name;
         private String position;
+        /** 해당 연도 접수(신청) 건수 */
+        private long totalSubmitted;
         private long totalSelected;
+        /** 이번 달 접수 건수 */
+        private long monthlySubmitted;
         private long monthlySelected;
         private int monthlyLimit;
         private long pendingCount;

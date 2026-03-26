@@ -1,11 +1,11 @@
 package devlava.youproapi.controller;
 
 import devlava.youproapi.dto.AdminDashboardResponse;
+import devlava.youproapi.dto.AdminReviewQueueResponse;
 import devlava.youproapi.dto.CaseJudgeRequest;
 import devlava.youproapi.dto.CaseResponse;
 import devlava.youproapi.dto.TeamDetailResponse;
 import devlava.youproapi.service.AdminService;
-import devlava.youproapi.service.CaseService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,7 +19,6 @@ import java.util.List;
 public class AdminController {
 
     private final AdminService adminService;
-    private final CaseService  caseService;
 
     /**
      * 관리자 대시보드
@@ -28,6 +27,15 @@ public class AdminController {
     @GetMapping("/dashboard")
     public ResponseEntity<AdminDashboardResponse> getDashboard() {
         return ResponseEntity.ok(adminService.getDashboard());
+    }
+
+    /**
+     * 검토 대기 화면 — 대시보드 + 대기 사례 한 번에 (중복 스코프 조회 방지)
+     * GET /api/admin/review-queue
+     */
+    @GetMapping("/review-queue")
+    public ResponseEntity<AdminReviewQueueResponse> getReviewQueue() {
+        return ResponseEntity.ok(adminService.getReviewQueue());
     }
 
     /**
@@ -45,7 +53,7 @@ public class AdminController {
      */
     @GetMapping("/cases/pending")
     public ResponseEntity<List<CaseResponse>> getPendingCases() {
-        return ResponseEntity.ok(caseService.getPendingCases());
+        return ResponseEntity.ok(adminService.getPendingCases());
     }
 
     /**
@@ -54,7 +62,7 @@ public class AdminController {
      */
     @GetMapping("/cases/{caseId}")
     public ResponseEntity<CaseResponse> getCaseForReview(@PathVariable Long caseId) {
-        return ResponseEntity.ok(caseService.getCaseForReview(caseId));
+        return ResponseEntity.ok(adminService.getCaseForReview(caseId));
     }
 
     /**
@@ -65,6 +73,6 @@ public class AdminController {
     public ResponseEntity<CaseResponse> judgeCase(
             @PathVariable Long caseId,
             @Valid @RequestBody CaseJudgeRequest req) {
-        return ResponseEntity.ok(caseService.judgeCase(caseId, req));
+        return ResponseEntity.ok(adminService.judgeCase(caseId, req));
     }
 }

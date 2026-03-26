@@ -55,7 +55,7 @@ COMMENT ON COLUMN TB_YOUPRO_CASE.title            IS '사례 제목';
 COMMENT ON COLUMN TB_YOUPRO_CASE.description      IS '응대 내용 요약';
 COMMENT ON COLUMN TB_YOUPRO_CASE.submitted_at     IS '접수 시각';
 COMMENT ON COLUMN TB_YOUPRO_CASE.status           IS '상태 (pending | selected | rejected)';
-COMMENT ON COLUMN TB_YOUPRO_CASE.call_date        IS '통화 일시 - STT 조회 키 (예: 2026-03-05)';
+COMMENT ON COLUMN TB_YOUPRO_CASE.call_date        IS '통화 일시 - STT 유선_유프로_STT 일자·상담시간 매칭용 (예: 2026-03-05 16:00:00)';
 COMMENT ON COLUMN TB_YOUPRO_CASE.customer_type    IS '고객 유형';
 COMMENT ON COLUMN TB_YOUPRO_CASE.judgment_reason  IS '판정 사유';
 COMMENT ON COLUMN TB_YOUPRO_CASE.judged_at        IS '판정 시각';
@@ -65,6 +65,27 @@ CREATE INDEX IF NOT EXISTS IDX_YOUPRO_CASE_SKID   ON TB_YOUPRO_CASE (skid);
 CREATE INDEX IF NOT EXISTS IDX_YOUPRO_CASE_STATUS ON TB_YOUPRO_CASE (status);
 CREATE INDEX IF NOT EXISTS IDX_YOUPRO_CASE_MONTH  ON TB_YOUPRO_CASE (skid, status, submitted_at);
 
--- 기존 DB 마이그레이션 (테이블이 이미 있을 때 한 번 실행)
--- ALTER TABLE TB_YOUPRO_CASE ADD COLUMN IF NOT EXISTS admin_edited_transcript TEXT;
--- ALTER TABLE TB_YOUPRO_CASE ADD COLUMN IF NOT EXISTS ai_snapshot_json TEXT;
+-- 기존 DB 마이그레이션: 엔티티와 불일치 시 아래 또는 ragdb_migration_add_case_columns.sql 실행
+-- ALTER TABLE tb_youpro_case ADD COLUMN IF NOT EXISTS admin_edited_transcript TEXT;
+-- ALTER TABLE tb_youpro_case ADD COLUMN IF NOT EXISTS ai_snapshot_json TEXT;
+
+-- =============================================================================
+-- 3. 유선_유프로_STT
+--    STT 전사 (일자 YYYYMMDD + 상담시간 HHMM 으로 사례 call_date 와 매칭)
+--    [참고] 운영 DB가 SQL Server 인 경우 동일 스키마로 테이블 생성 후 연동
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS "유선_유프로_STT" (
+    "Num"        BIGSERIAL    NOT NULL,
+    "일자"       VARCHAR(20),
+    "STT원본"    TEXT,
+    "상담시간"   VARCHAR(20),
+    "상담사ID"   VARCHAR(20),
+    CONSTRAINT PK_유선_유프로_STT PRIMARY KEY ("Num")
+);
+
+COMMENT ON TABLE  "유선_유프로_STT"      IS 'STT 전사 (유선 유프로)';
+COMMENT ON COLUMN "유선_유프로_STT"."Num"       IS '일련번호';
+COMMENT ON COLUMN "유선_유프로_STT"."일자"      IS '상담일자 (예: 20260221)';
+COMMENT ON COLUMN "유선_유프로_STT"."STT원본"   IS 'STT 전체 전사';
+COMMENT ON COLUMN "유선_유프로_STT"."상담시간" IS '시각 (예: 1600 = 16시 00분)';
+COMMENT ON COLUMN "유선_유프로_STT"."상담사ID" IS '상담사 ID';

@@ -2,19 +2,19 @@ package devlava.youproapi.service;
 
 import devlava.youproapi.domain.TbLmsMember;
 import devlava.youproapi.domain.TbYouProCase;
+import devlava.youproapi.dto.AdminScopedCaseStats;
 import devlava.youproapi.dto.CaseJudgeRequest;
 import devlava.youproapi.dto.CaseResponse;
 import devlava.youproapi.dto.CaseSubmitRequest;
+import devlava.youproapi.dto.SttResultDto;
 import devlava.youproapi.repository.TbLmsMemberRepository;
 import devlava.youproapi.repository.TbYouProCaseRepository;
-import devlava.youproapi.stt.dto.SttResultDto;
-import devlava.youproapi.stt.service.SttService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -74,6 +74,21 @@ public class CaseService {
     /** 검토 대기 전체 사례 */
     public List<CaseResponse> getPendingCases() {
         return caseRepository.findByStatusOrderBySubmittedAtAsc("pending").stream()
+                .map(c -> {
+                    TbLmsMember m = findMemberSafe(c.getSkid());
+                    return CaseResponse.fromSimple(c,
+                            m != null ? m.getMbName() : c.getSkid(),
+                            m != null ? m.getDeptName() : "");
+                })
+                .collect(Collectors.toList());
+    }
+
+    /** 검토 대기 사례 — 구성원 SKID 집합으로 제한 (관리자 조직 스코프) */
+    public List<CaseResponse> getPendingCasesForSkids(Collection<String> skids) {
+        if (skids == null || skids.isEmpty()) {
+            return List.of();
+        }
+        return caseRepository.findByStatusAndSkidInOrderBySubmittedAtAsc("pending", skids).stream()
                 .map(c -> {
                     TbLmsMember m = findMemberSafe(c.getSkid());
                     return CaseResponse.fromSimple(c,
@@ -150,6 +165,173 @@ public class CaseService {
     /** 전 센터 월별 선정 건수 */
     public long countSelectedByYearMonth(int year, int month) {
         return caseRepository.countSelectedByYearMonth(year, month);
+    }
+
+    // ─── 관리자 스코프 배치 통계 (N+1 방지) ─────────────────────────────────
+
+    public long countSubmittedBySkidsAndYear(Collection<String> skids, int year) {
+        if (skids == null || skids.isEmpty()) {
+            return 0L;
+        }
+        return caseRepository.countSubmittedBySkidsAndYear(skids, year);
+    }
+
+    /** 팀(구성원 집합) 기준 해당 연·월 접수 건수 */
+    public long countSubmittedBySkidsAndYearMonth(Collection<String> skids, int year, int month) {
+        if (skids == null || skids.isEmpty()) {
+            return 0L;
+        }
+        return caseRepository.countSubmittedBySkidsAndYearMonth(skids, year, month);
+    }
+
+    public long countSelectedBySkidsAndYear(Collection<String> skids, int year) {
+        if (skids == null || skids.isEmpty()) {
+            return 0L;
+        }
+        return caseRepository.countSelectedBySkidsAndYear(skids, year);
+    }
+
+    /** 월(1~12) → 해당 월 접수 건수 */
+    public Map<Integer, Long> mapSubmittedByMonthForSkidsAndYear(Collection<String> skids, int year) {
+        if (skids == null || skids.isEmpty()) {
+            return Map.of();
+        }
+        return rowsToMonthMap(caseRepository.countSubmittedBySkidsGroupByMonth(skids, year));
+    }
+
+    /** 월(1~12) → 해당 월 선정 건수 */
+    public Map<Integer, Long> mapSelectedByMonthForSkidsAndYear(Collection<String> skids, int year) {
+        if (skids == null || skids.isEmpty()) {
+            return Map.of();
+        }
+        return rowsToMonthMap(caseRepository.countSelectedBySkidsGroupByMonth(skids, year));
+    }
+
+    /** 구성원별 해당 연도 접수(신청) 건수 */
+    public Map<String, Long> mapSubmittedBySkidForYear(Collection<String> skids, int year) {
+        if (skids == null || skids.isEmpty()) {
+            return Map.of();
+        }
+        return rowsToSkidMap(caseRepository.countSubmittedBySkidsAndYearGroupBySkid(skids, year));
+    }
+
+    /** 구성원별 해당 연·월 접수(신청) 건수 */
+    public Map<String, Long> mapSubmittedBySkidForYearMonth(Collection<String> skids, int year, int month) {
+        if (skids == null || skids.isEmpty()) {
+            return Map.of();
+        }
+        return rowsToSkidMap(caseRepository.countSubmittedBySkidsAndYearMonthGroupBySkid(skids, year, month));
+    }
+
+    public Map<String, Long> mapSelectedBySkidForYear(Collection<String> skids, int year) {
+        if (skids == null || skids.isEmpty()) {
+            return Map.of();
+        }
+        return rowsToSkidMap(caseRepository.countSelectedBySkidsAndYearGroupBySkid(skids, year));
+    }
+
+    public Map<String, Long> mapSelectedBySkidForYearMonth(Collection<String> skids, int year, int month) {
+        if (skids == null || skids.isEmpty()) {
+            return Map.of();
+        }
+        return rowsToSkidMap(caseRepository.countSelectedBySkidsAndYearMonthGroupBySkid(skids, year, month));
+    }
+
+    public Map<String, Long> mapPendingBySkid(Collection<String> skids) {
+        if (skids == null || skids.isEmpty()) {
+            return Map.of();
+        }
+        return rowsToSkidMap(caseRepository.countPendingBySkidsGroupBySkid(skids));
+    }
+
+    public Map<String, Long> mapJudgedBySkidForYear(Collection<String> skids, int year) {
+        if (skids == null || skids.isEmpty()) {
+            return Map.of();
+        }
+        return rowsToSkidMap(caseRepository.countJudgedBySkidsAndYearGroupBySkid(skids, year));
+    }
+
+    /**
+     * 관리자 스코프 대시보드용 집계를 2회의 네이티브 쿼리로 로드 (기존 8회 대비).
+     */
+    public AdminScopedCaseStats loadScopedDashboardStats(Collection<String> skids, int year, int month) {
+        if (skids == null || skids.isEmpty()) {
+            return AdminScopedCaseStats.builder()
+                    .totalSubmittedYear(0L)
+                    .totalSelectedYear(0L)
+                    .submittedByMonth(Map.of())
+                    .selectedByMonth(Map.of())
+                    .selectedBySkidYear(Map.of())
+                    .selectedBySkidYearMonth(Map.of())
+                    .pendingBySkid(Map.of())
+                    .judgedBySkidYear(Map.of())
+                    .build();
+        }
+
+        List<Object[]> monthly = caseRepository.aggregateMonthlySubmittedAndSelectedBySkidsAndYear(skids, year);
+        Map<Integer, Long> submittedByMonth = new HashMap<>();
+        Map<Integer, Long> selectedByMonth = new HashMap<>();
+        long totalSubmitted = 0L;
+        long totalSelected = 0L;
+        for (Object[] row : monthly) {
+            if (row[0] == null) {
+                continue;
+            }
+            int m = ((Number) row[0]).intValue();
+            long sub = ((Number) row[1]).longValue();
+            long sel = ((Number) row[2]).longValue();
+            submittedByMonth.put(m, sub);
+            selectedByMonth.put(m, sel);
+            totalSubmitted += sub;
+            totalSelected += sel;
+        }
+
+        List<Object[]> perSkid = caseRepository.aggregatePerSkidDashboardMetrics(skids, year, month);
+        Map<String, Long> selYear = new HashMap<>();
+        Map<String, Long> selMonth = new HashMap<>();
+        Map<String, Long> pending = new HashMap<>();
+        Map<String, Long> judged = new HashMap<>();
+        for (Object[] row : perSkid) {
+            String skid = (String) row[0];
+            selYear.put(skid, ((Number) row[1]).longValue());
+            selMonth.put(skid, ((Number) row[2]).longValue());
+            pending.put(skid, ((Number) row[3]).longValue());
+            judged.put(skid, ((Number) row[4]).longValue());
+        }
+
+        return AdminScopedCaseStats.builder()
+                .totalSubmittedYear(totalSubmitted)
+                .totalSelectedYear(totalSelected)
+                .submittedByMonth(submittedByMonth)
+                .selectedByMonth(selectedByMonth)
+                .selectedBySkidYear(selYear)
+                .selectedBySkidYearMonth(selMonth)
+                .pendingBySkid(pending)
+                .judgedBySkidYear(judged)
+                .build();
+    }
+
+    public TbYouProCase getCaseEntityOrThrow(Long caseId) {
+        return findCase(caseId);
+    }
+
+    private static Map<Integer, Long> rowsToMonthMap(List<Object[]> rows) {
+        Map<Integer, Long> m = new HashMap<>();
+        for (Object[] row : rows) {
+            if (row[0] == null) {
+                continue;
+            }
+            m.put(((Number) row[0]).intValue(), ((Number) row[1]).longValue());
+        }
+        return m;
+    }
+
+    private static Map<String, Long> rowsToSkidMap(List<Object[]> rows) {
+        Map<String, Long> m = new HashMap<>();
+        for (Object[] row : rows) {
+            m.put((String) row[0], ((Number) row[1]).longValue());
+        }
+        return m;
     }
 
     public List<CaseResponse> getCasesBySkids(List<String> skids,
