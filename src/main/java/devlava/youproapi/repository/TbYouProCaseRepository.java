@@ -203,22 +203,21 @@ public interface TbYouProCaseRepository extends JpaRepository<TbYouProCase, Long
            """)
     List<Object[]> countJudgedBySkidsAndYearGroupBySkid(@Param("skids") Collection<String> skids, @Param("year") int year);
 
-    // ─── PostgreSQL 전용: 관리자 대시보드 통계 배치 (스코프 skids) ─────────────
+    // ─── 관리자 대시보드 통계 배치 (스코프 skids) — JPQL 로 PostgreSQL·MS SQL 공통 ─
 
     /**
      * 연도·스코프 기준 월별 접수(전체) / 선정 건수를 한 번에 집계.
      * (기존 countSubmittedBySkidsGroupByMonth + countSelectedBySkidsGroupByMonth 2회 → 1회)
      */
-    @Query(value = """
-            SELECT CAST(EXTRACT(MONTH FROM submitted_at) AS INTEGER) AS m,
-                   COUNT(*) AS submitted,
-                   COUNT(*) FILTER (WHERE status = 'selected') AS selected
-            FROM tb_youpro_case
-            WHERE skid IN (:skids)
-              AND EXTRACT(YEAR FROM submitted_at) = :year
-            GROUP BY EXTRACT(MONTH FROM submitted_at)
-            ORDER BY 1
-            """, nativeQuery = true)
+    @Query("""
+            SELECT month(c.submittedAt), count(c),
+                   sum(case when c.status = 'selected' then 1 else 0 end)
+            FROM TbYouProCase c
+            WHERE c.skid IN :skids
+              AND year(c.submittedAt) = :year
+            GROUP BY month(c.submittedAt)
+            ORDER BY month(c.submittedAt)
+            """)
     List<Object[]> aggregateMonthlySubmittedAndSelectedBySkidsAndYear(
             @Param("skids") Collection<String> skids,
             @Param("year") int year);
@@ -227,20 +226,17 @@ public interface TbYouProCaseRepository extends JpaRepository<TbYouProCase, Long
      * 스코프 구성원별 선정(연/월)·대기·연도판정 건수를 한 번에 집계.
      * (기존 skid별 GROUP BY 쿼리 4회 → 1회)
      */
-    @Query(value = """
-            SELECT skid,
-                   COUNT(*) FILTER (WHERE status = 'selected'
-                       AND EXTRACT(YEAR FROM submitted_at) = :year) AS sel_year,
-                   COUNT(*) FILTER (WHERE status = 'selected'
-                       AND EXTRACT(YEAR FROM submitted_at) = :year
-                       AND EXTRACT(MONTH FROM submitted_at) = :month) AS sel_month,
-                   COUNT(*) FILTER (WHERE status = 'pending') AS pending,
-                   COUNT(*) FILTER (WHERE status IN ('selected', 'rejected')
-                       AND EXTRACT(YEAR FROM submitted_at) = :year) AS judged
-            FROM tb_youpro_case
-            WHERE skid IN (:skids)
-            GROUP BY skid
-            """, nativeQuery = true)
+    @Query("""
+            SELECT c.skid,
+                   sum(case when c.status = 'selected' and year(c.submittedAt) = :year then 1 else 0 end),
+                   sum(case when c.status = 'selected' and year(c.submittedAt) = :year
+                            and month(c.submittedAt) = :month then 1 else 0 end),
+                   sum(case when c.status = 'pending' then 1 else 0 end),
+                   sum(case when c.status in ('selected', 'rejected') and year(c.submittedAt) = :year then 1 else 0 end)
+            FROM TbYouProCase c
+            WHERE c.skid IN :skids
+            GROUP BY c.skid
+            """)
     List<Object[]> aggregatePerSkidDashboardMetrics(
             @Param("skids") Collection<String> skids,
             @Param("year") int year,

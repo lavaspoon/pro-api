@@ -10,7 +10,7 @@ import java.util.Map;
 
 /**
  * 사례 응답 DTO — 구성원/관리자 화면 공용.
- * 프론트엔드의 case 객체 형태와 정확히 일치하도록 필드명을 맞춘다.
+ * 프론트엔드 case 객체와 필드명을 맞춘다 (aiKeyPhrase, aiKeyPoint 등).
  */
 @Getter
 @Builder
@@ -77,11 +77,11 @@ public class CaseResponse {
      */
     private String fullTranscript;
 
-    /** AI 인사이트 (현재는 null, 추후 확장) */
-    private Object aiInsight;
+    /** AI가 전하는 피드백 (JSON이면 파싱된 객체, 아니면 null 처리) */
+    private Object aiKeyPoint;
 
-    /** 관리자가 확정한 STT 대화 텍스트 (판정 후 저장) */
-    private String adminEditedTranscript;
+    /** AI가 추출한 STT 중 핵심 멘트 (판정 후 저장) */
+    private String aiKeyPhrase;
 
     // ─── Factory ──────────────────────────────────────────────────────────
 
@@ -104,8 +104,8 @@ public class CaseResponse {
                 .judgedAt(c.getJudgedAt() != null ? c.getJudgedAt().format(ISO) : null)
                 .month(c.getSubmittedAt() != null ? c.getSubmittedAt().format(MONTH_FMT) : null)
                 .fullTranscript(fullTranscript)
-                .aiInsight(parseAiInsightJson(c.getAiSnapshotJson()))
-                .adminEditedTranscript(c.getAdminEditedTranscript())
+                .aiKeyPoint(parseAiInsightJson(c.getAiKeyPoint()))
+                .aiKeyPhrase(c.getAiKeyPhrase())
                 .build();
     }
 

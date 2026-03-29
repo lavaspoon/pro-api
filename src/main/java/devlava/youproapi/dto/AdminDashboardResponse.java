@@ -6,8 +6,11 @@ import lombok.Getter;
 import java.util.List;
 
 @Getter
-@Builder
+@Builder(toBuilder = true)
 public class AdminDashboardResponse {
+
+    /** 관리자 2depth 필터 메타(백엔드 설정) — 프론트 하드코딩 금지 */
+    private AdminFilterMetaResponse filterMeta;
 
     private int year;
     private double centerAvg;

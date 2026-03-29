@@ -8,10 +8,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
- * 유선_유프로_STT 조회 — 접수 {@code call_date}(일자·상담시간)와 매칭.
+ * {@code TB_YOU_PRO_STT} 조회 — 접수 {@code skid}, {@code call_date}(일자·상담시간)와 매칭.
+ * <p>DB 종류와 무관하게 {@code reg_date} 비교는 애플리케이션에서 숫자만 추출해 수행한다.
  */
 @Slf4j
 @Service
@@ -25,6 +27,10 @@ public class SttService {
         if (callDate == null || callDate.isBlank()) {
             return SttResultDto.notFound(callDate);
         }
+        if (agentSkid == null || agentSkid.isBlank()) {
+            log.warn("[STT] skid 없음 | callDate='{}'", callDate);
+            return SttResultDto.notFound(callDate);
+        }
         String normalized = normalizeCallTime(callDate);
         Optional<IlJaSangdam> keys = parseIlJaAndSangdamSiGan(normalized);
         if (keys.isEmpty()) {
@@ -32,20 +38,51 @@ public class SttService {
             return SttResultDto.notFound(callDate);
         }
         IlJaSangdam k = keys.get();
-        Optional<TbYouStt> exact = youSttRepository.findFirstByIlJaAndSangdamSiGan(k.ilja(), k.sangdamSiGan());
+        List<TbYouStt> rows = youSttRepository.findBySkidOrderBySttIdAsc(agentSkid.trim());
+
+        Optional<TbYouStt> exact = pickExact(rows, k.ilja(), k.sangdamSiGan());
         if (exact.isPresent()) {
-            log.debug("[STT] 일자·상담시간 조회 성공 | callDate='{}'", callDate);
+            log.debug("[STT] skid·일자·상담시간 조회 성공 | callDate='{}'", callDate);
             return SttResultDto.from(exact.get());
         }
         if (k.sangdamSiGan().length() >= 4) {
-            String prefix = k.sangdamSiGan().substring(0, 4) + "%";
-            Optional<TbYouStt> like = youSttRepository.findFirstByIlJaAndSangdamSiGanPrefix(k.ilja(), prefix);
+            Optional<TbYouStt> like = pickPrefix(rows, k.ilja(), k.sangdamSiGan());
             if (like.isPresent()) {
                 return SttResultDto.from(like.get());
             }
         }
         log.warn("[STT] 일치 없음 | callDate='{}', agentSkid='{}'", callDate, agentSkid);
         return SttResultDto.notFound(callDate);
+    }
+
+    /** {@code reg_date} 에서 숫자만 남긴 문자열이 {@code 일자+상담시간} 과 같을 때까지 {@code stt_id} 순으로 탐색. */
+    private static Optional<TbYouStt> pickExact(List<TbYouStt> rows, String ilja, String sangdamSiGan) {
+        String target = ilja + sangdamSiGan;
+        for (TbYouStt t : rows) {
+            if (digitsOnly(t.getRegDate()).equals(target)) {
+                return Optional.of(t);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** {@code reg_date} 숫자열이 {@code 일자 + 상담시간 앞 4자리} 로 시작하는 첫 행 (기존 LIKE 접두사 매칭). */
+    private static Optional<TbYouStt> pickPrefix(List<TbYouStt> rows, String ilja, String sangdamSiGan) {
+        String head = ilja + sangdamSiGan.substring(0, 4);
+        for (TbYouStt t : rows) {
+            String reg = digitsOnly(t.getRegDate());
+            if (reg.startsWith(head)) {
+                return Optional.of(t);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static String digitsOnly(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replaceAll("[^0-9]", "");
     }
 
     public String normalizeCallTime(String callTime) {

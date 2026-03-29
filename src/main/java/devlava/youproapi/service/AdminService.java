@@ -1,16 +1,23 @@
 package devlava.youproapi.service;
 
+import devlava.youproapi.config.YouproAdminProperties;
+import devlava.youproapi.domain.TbLmsDept;
 import devlava.youproapi.domain.TbLmsMember;
 import devlava.youproapi.domain.TbYouProCase;
 import devlava.youproapi.dto.AdminDashboardResponse;
 import devlava.youproapi.dto.AdminDashboardResponse.MemberSummary;
 import devlava.youproapi.dto.AdminDashboardResponse.TeamSummary;
+import devlava.youproapi.dto.AdminFilterMetaResponse;
+import devlava.youproapi.dto.AdminLeafTeamsResponse;
+import devlava.youproapi.dto.AdminRankingResponse;
 import devlava.youproapi.dto.AdminReviewQueueResponse;
 import devlava.youproapi.dto.AdminScopedCaseStats;
 import devlava.youproapi.dto.CaseJudgeRequest;
 import devlava.youproapi.dto.CaseResponse;
 import devlava.youproapi.dto.TeamDetailResponse;
+import devlava.youproapi.repository.TbLmsDeptRepository;
 import devlava.youproapi.repository.TbLmsMemberRepository;
+import devlava.youproapi.support.AdminDeptScope;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,30 +33,240 @@ public class AdminService {
 
     private static final int MONTHLY_LIMIT = 3;
 
-    private final TbLmsMemberRepository     memberRepository;
-    private final AdminDeptScopeResolver    deptScopeResolver;
-    private final CaseService               caseService;
+    private final TbLmsMemberRepository memberRepository;
+    private final TbLmsDeptRepository deptRepository;
+    private final YouproAdminProperties adminProperties;
+    private final AdminDeptScopeResolver deptScopeResolver;
+    private final CaseService caseService;
 
-    // ─── 관리자 대시보드 (부서 5·7 하위만, 통계 N+1 없음) ─────────────────────
+    // ─── 관리자 대시보드 ─────────────────────────────────────────────────────
 
     public AdminDashboardResponse getDashboard() {
-        return buildDashboardFromMembers(loadScopedMembers());
+        List<TbLmsMember> scoped = loadScopedMembers();
+        return buildDashboardFromMembers(scoped).toBuilder()
+                .filterMeta(buildFilterMeta())
+                .build();
+    }
+
+    /**
+     * 2depth 부서(설정값) 기준 하위 leaf depth 팀 목록 + 팀별 집계.
+     * 부서 트리 1회 + 구성원 IN 1회 + 통계 배치 2회 — N+1 없음.
+     *
+     * @param secondDepthDeptId null 이면 설정된 모든 2depth(5·6·7) 하위 leaf 팀을 합집합
+     */
+    public AdminLeafTeamsResponse getLeafTeamsForSecondDepth(Integer secondDepthDeptId) {
+        List<Integer> cfg = adminProperties.getSecondDepthDeptIds();
+        if (secondDepthDeptId != null && !cfg.contains(secondDepthDeptId)) {
+            throw new IllegalArgumentException("허용되지 않은 2depth 부서입니다: " + secondDepthDeptId);
+        }
+
+        List<TbLmsDept> allDepts = deptRepository.findAllWithParentFetched();
+        int leafDepth = adminProperties.getLeafTeamDepth();
+
+        List<TbLmsDept> leafDepts = secondDepthDeptId == null
+                ? AdminDeptScope.listLeafDeptsUnderAnyRoot(allDepts, cfg, leafDepth)
+                : AdminDeptScope.listDeptsOfDepthInSubtree(allDepts, secondDepthDeptId, leafDepth);
+
+        List<TeamSummary> teams = buildLeafTeamSummaries(leafDepts);
+        return AdminLeafTeamsResponse.builder()
+                .secondDepthDeptId(secondDepthDeptId)
+                .teams(teams)
+                .build();
+    }
+
+    /**
+     * {@code TB_YOU_PRO_CASE} 해당 연도 접수 건수 기준 랭킹 및 2depth 센터별 접수 합계.
+     * 부서 트리 1회 + 스코프 구성원 1회 + skid별 접수 집계 1회 — N+1 없음.
+     */
+    public AdminRankingResponse getRanking(int year, int topN) {
+        List<TbLmsMember> scoped = loadScopedMembers();
+        if (scoped.isEmpty()) {
+            return AdminRankingResponse.builder()
+                    .year(year)
+                    .topN(topN)
+                    .bySecondDepth(List.of())
+                    .combined(AdminRankingResponse.CombinedRanking.builder()
+                            .totalSubmitted(0L)
+                            .topMembers(List.of())
+                            .build())
+                    .build();
+        }
+
+        List<TbLmsDept> allDepts = deptRepository.findAllWithParentFetched();
+        Map<Integer, Integer> parentOf = new HashMap<>();
+        for (TbLmsDept d : allDepts) {
+            parentOf.put(d.getDeptId(), d.getParent() != null ? d.getParent().getDeptId() : null);
+        }
+        Set<Integer> rootSet = new HashSet<>(adminProperties.getSecondDepthDeptIds());
+
+        Map<Integer, List<TbLmsMember>> byRoot = new HashMap<>();
+        for (TbLmsMember m : scoped) {
+            Integer deptIdx = m.getDeptIdx();
+            if (deptIdx == null) {
+                continue;
+            }
+            Integer root = resolveSecondDepthRoot(deptIdx, parentOf, rootSet);
+            if (root == null) {
+                continue;
+            }
+            byRoot.computeIfAbsent(root, k -> new ArrayList<>()).add(m);
+        }
+
+        List<String> allSkids = scoped.stream().map(TbLmsMember::getSkid).collect(Collectors.toList());
+        Map<String, Long> submittedBySkid = caseService.mapSubmittedBySkidForYear(allSkids, year);
+
+        Map<Integer, String> rootNames = deptRepository.findAllById(rootSet).stream()
+                .collect(Collectors.toMap(TbLmsDept::getDeptId, d -> d.getDeptName() != null ? d.getDeptName() : "", (a, b) -> a));
+
+        List<AdminRankingResponse.SecondDepthRanking> blocks = new ArrayList<>();
+        for (Integer rootId : adminProperties.getSecondDepthDeptIds()) {
+            List<TbLmsMember> inRoot = byRoot.getOrDefault(rootId, List.of());
+            long centerTotal = inRoot.stream()
+                    .mapToLong(m -> submittedBySkid.getOrDefault(m.getSkid(), 0L))
+                    .sum();
+            blocks.add(AdminRankingResponse.SecondDepthRanking.builder()
+                    .secondDepthDeptId(rootId)
+                    .secondDepthName(rootNames.getOrDefault(rootId, String.valueOf(rootId)))
+                    .centerTotalSubmitted(centerTotal)
+                    .topMembers(buildTopRankEntries(inRoot, submittedBySkid, topN))
+                    .build());
+        }
+
+        List<TbLmsMember> combinedMembers = byRoot.values().stream()
+                .flatMap(List::stream)
+                .collect(Collectors.toList());
+        long combinedTotal = combinedMembers.stream()
+                .mapToLong(m -> submittedBySkid.getOrDefault(m.getSkid(), 0L))
+                .sum();
+
+        return AdminRankingResponse.builder()
+                .year(year)
+                .topN(topN)
+                .bySecondDepth(blocks)
+                .combined(AdminRankingResponse.CombinedRanking.builder()
+                        .totalSubmitted(combinedTotal)
+                        .topMembers(buildTopRankEntries(combinedMembers, submittedBySkid, topN))
+                        .build())
+                .build();
+    }
+
+    private static Integer resolveSecondDepthRoot(Integer deptIdx, Map<Integer, Integer> parentOf, Set<Integer> roots) {
+        Integer cur = deptIdx;
+        for (int i = 0; i < 64 && cur != null; i++) {
+            if (roots.contains(cur)) {
+                return cur;
+            }
+            cur = parentOf.get(cur);
+        }
+        return null;
+    }
+
+    private static List<AdminRankingResponse.RankEntry> buildTopRankEntries(
+            List<TbLmsMember> members,
+            Map<String, Long> submittedBySkid,
+            int topN) {
+        return members.stream()
+                .sorted((a, b) -> Long.compare(
+                        submittedBySkid.getOrDefault(b.getSkid(), 0L),
+                        submittedBySkid.getOrDefault(a.getSkid(), 0L)))
+                .limit(topN)
+                .map(m -> AdminRankingResponse.RankEntry.builder()
+                        .skid(m.getSkid())
+                        .memberName(m.getMbName())
+                        .teamName(m.getDeptName() != null ? m.getDeptName() : "")
+                        .submittedCount(submittedBySkid.getOrDefault(m.getSkid(), 0L))
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    private AdminFilterMetaResponse buildFilterMeta() {
+        List<Integer> ids = adminProperties.getSecondDepthDeptIds();
+        List<TbLmsDept> rows = deptRepository.findAllById(ids);
+        Map<Integer, TbLmsDept> byId = rows.stream()
+                .collect(Collectors.toMap(TbLmsDept::getDeptId, d -> d, (a, b) -> a));
+
+        List<AdminFilterMetaResponse.SecondDepthDeptOption> opts = new ArrayList<>();
+        for (Integer id : ids) {
+            TbLmsDept d = byId.get(id);
+            opts.add(AdminFilterMetaResponse.SecondDepthDeptOption.builder()
+                    .id(id)
+                    .name(d != null && d.getDeptName() != null ? d.getDeptName() : String.valueOf(id))
+                    .build());
+        }
+
+        return AdminFilterMetaResponse.builder()
+                .leafTeamDepth(adminProperties.getLeafTeamDepth())
+                .secondDepthDepts(opts)
+                .build();
+    }
+
+    /**
+     * leaf 부서 목록 순서대로 팀 요약 생성 — 구성원·통계는 배치만 사용.
+     */
+    private List<TeamSummary> buildLeafTeamSummaries(List<TbLmsDept> leafDepts) {
+        if (leafDepts.isEmpty()) {
+            return List.of();
+        }
+
+        List<Integer> leafIds = leafDepts.stream()
+                .map(TbLmsDept::getDeptId)
+                .collect(Collectors.toList());
+
+        List<TbLmsMember> members = memberRepository.findByUseYnAndDeptIdxIn("Y", leafIds);
+        Map<Integer, List<TbLmsMember>> byDept = members.stream()
+                .filter(m -> m.getDeptIdx() != null)
+                .collect(Collectors.groupingBy(TbLmsMember::getDeptIdx));
+
+        LocalDate now = LocalDate.now();
+        int year = now.getYear();
+        int month = now.getMonthValue();
+
+        List<String> allSkids = members.stream().map(TbLmsMember::getSkid).collect(Collectors.toList());
+        AdminScopedCaseStats stats = caseService.loadScopedDashboardStats(allSkids, year, month);
+
+        Map<String, Long> submittedYearBySkid = caseService.mapSubmittedBySkidForYear(allSkids, year);
+        Map<String, Long> submittedMonthBySkid = caseService.mapSubmittedBySkidForYearMonth(allSkids, year, month);
+        Map<String, Long> selectedYearMap = stats.getSelectedBySkidYear();
+        Map<String, Long> selectedMonthMap = stats.getSelectedBySkidYearMonth();
+        Map<String, Long> pendingMap = stats.getPendingBySkid();
+        Map<String, Long> judgedMap = stats.getJudgedBySkidYear();
+
+        List<TeamSummary> out = new ArrayList<>();
+        for (TbLmsDept leaf : leafDepts) {
+            Integer did = leaf.getDeptId();
+            List<TbLmsMember> ms = byDept.getOrDefault(did, List.of());
+            String fallbackName = leaf.getDeptName() != null ? leaf.getDeptName() : "";
+            out.add(buildTeamSummary(
+                    did,
+                    ms,
+                    submittedYearBySkid,
+                    submittedMonthBySkid,
+                    selectedYearMap,
+                    selectedMonthMap,
+                    pendingMap,
+                    judgedMap,
+                    fallbackName));
+        }
+        return out;
     }
 
     /**
      * 검토 대기 화면 전용 — 대시보드와 대기 사례를 동일 스코프 구성원 기준으로 한 번에 구성.
-     * (부서 트리·구성원 IN 조회는 1회, 통계·대기는 배치 쿼리)
      */
     public AdminReviewQueueResponse getReviewQueue() {
         List<TbLmsMember> scoped = loadScopedMembers();
         if (scoped.isEmpty()) {
             return AdminReviewQueueResponse.builder()
-                    .dashboard(emptyDashboard(LocalDate.now().getYear()))
+                    .dashboard(emptyDashboard(LocalDate.now().getYear()).toBuilder()
+                            .filterMeta(buildFilterMeta())
+                            .build())
                     .pendingCases(List.of())
                     .build();
         }
         Set<String> skids = scoped.stream().map(TbLmsMember::getSkid).collect(Collectors.toSet());
-        AdminDashboardResponse dashboard = buildDashboardFromMembers(scoped);
+        AdminDashboardResponse dashboard = buildDashboardFromMembers(scoped).toBuilder()
+                .filterMeta(buildFilterMeta())
+                .build();
         List<CaseResponse> pending = caseService.getPendingCasesForSkids(skids);
 
         Map<String, TbLmsMember> memberBySkid = scoped.stream()
@@ -66,7 +283,7 @@ public class AdminService {
 
     private AdminDashboardResponse buildDashboardFromMembers(List<TbLmsMember> scopedMembers) {
         LocalDate now = LocalDate.now();
-        int year  = now.getYear();
+        int year = now.getYear();
         int month = now.getMonthValue();
 
         if (scopedMembers.isEmpty()) {
@@ -80,17 +297,19 @@ public class AdminService {
         AdminScopedCaseStats stats = caseService.loadScopedDashboardStats(allSkids, year, month);
 
         long totalSubmitted = stats.getTotalSubmittedYear();
-        long totalSelected  = stats.getTotalSelectedYear();
-        int  memberCount    = scopedMembers.size();
-        double centerAvg    = memberCount == 0 ? 0.0 : (double) totalSelected / memberCount;
+        long totalSelected = stats.getTotalSelectedYear();
+        int memberCount = scopedMembers.size();
+        double centerAvg = memberCount == 0 ? 0.0 : (double) totalSelected / memberCount;
 
         Map<Integer, Long> submittedByMonth = stats.getSubmittedByMonth();
-        Map<Integer, Long> selectedByMonth  = stats.getSelectedByMonth();
+        Map<Integer, Long> selectedByMonth = stats.getSelectedByMonth();
 
-        Map<String, Long> selectedYearMap  = stats.getSelectedBySkidYear();
+        Map<String, Long> submittedYearBySkid = caseService.mapSubmittedBySkidForYear(allSkids, year);
+        Map<String, Long> submittedMonthBySkid = caseService.mapSubmittedBySkidForYearMonth(allSkids, year, month);
+        Map<String, Long> selectedYearMap = stats.getSelectedBySkidYear();
         Map<String, Long> selectedMonthMap = stats.getSelectedBySkidYearMonth();
-        Map<String, Long> pendingMap       = stats.getPendingBySkid();
-        Map<String, Long> judgedMap        = stats.getJudgedBySkidYear();
+        Map<String, Long> pendingMap = stats.getPendingBySkid();
+        Map<String, Long> judgedMap = stats.getJudgedBySkidYear();
 
         Map<Integer, List<TbLmsMember>> byDept = scopedMembers.stream()
                 .filter(m -> m.getDeptIdx() != null)
@@ -101,12 +320,13 @@ public class AdminService {
                 .map(e -> buildTeamSummary(
                         e.getKey(),
                         e.getValue(),
-                        year,
-                        month,
+                        submittedYearBySkid,
+                        submittedMonthBySkid,
                         selectedYearMap,
                         selectedMonthMap,
                         pendingMap,
-                        judgedMap))
+                        judgedMap,
+                        null))
                 .collect(Collectors.toList());
 
         List<AdminDashboardResponse.MonthlyTrendPoint> monthlyTrend = new ArrayList<>();
@@ -160,21 +380,28 @@ public class AdminService {
     private TeamSummary buildTeamSummary(
             Integer deptIdx,
             List<TbLmsMember> members,
-            int year,
-            int month,
+            Map<String, Long> submittedYearBySkid,
+            Map<String, Long> submittedMonthBySkid,
             Map<String, Long> selectedYearMap,
             Map<String, Long> selectedMonthMap,
             Map<String, Long> pendingMap,
-            Map<String, Long> judgedMap) {
+            Map<String, Long> judgedMap,
+            String teamNameFallback) {
 
-        String teamName = members.isEmpty() ? "" : members.get(0).getDeptName();
+        String teamName = !members.isEmpty()
+                ? members.get(0).getDeptName()
+                : (teamNameFallback != null ? teamNameFallback : "");
 
         List<String> teamSkids = members.stream()
                 .map(TbLmsMember::getSkid)
                 .collect(Collectors.toList());
 
-        long teamSubmittedYear = caseService.countSubmittedBySkidsAndYear(teamSkids, year);
-        long teamMonthlySubmitted = caseService.countSubmittedBySkidsAndYearMonth(teamSkids, year, month);
+        long teamSubmittedYear = teamSkids.stream()
+                .mapToLong(s -> submittedYearBySkid.getOrDefault(s, 0L))
+                .sum();
+        long teamMonthlySubmitted = teamSkids.stream()
+                .mapToLong(s -> submittedMonthBySkid.getOrDefault(s, 0L))
+                .sum();
 
         long teamTotal = members.stream()
                 .mapToLong(m -> selectedYearMap.getOrDefault(m.getSkid(), 0L))
@@ -222,9 +449,9 @@ public class AdminService {
     public TeamDetailResponse getTeamDetail(Integer deptIdx) {
         assertDeptInScope(deptIdx);
 
-        LocalDate now   = LocalDate.now();
-        int year        = now.getYear();
-        int month       = now.getMonthValue();
+        LocalDate now = LocalDate.now();
+        int year = now.getYear();
+        int month = now.getMonthValue();
 
         List<TbLmsMember> members = memberRepository.findByDeptIdxAndUseYn(deptIdx, "Y");
         if (members.isEmpty()) {
@@ -237,11 +464,11 @@ public class AdminService {
                 .map(TbLmsMember::getSkid)
                 .collect(Collectors.toList());
 
-        Map<String, Long> submittedYearMap  = caseService.mapSubmittedBySkidForYear(skids, year);
+        Map<String, Long> submittedYearMap = caseService.mapSubmittedBySkidForYear(skids, year);
         Map<String, Long> submittedMonthMap = caseService.mapSubmittedBySkidForYearMonth(skids, year, month);
-        Map<String, Long> selectedYearMap  = caseService.mapSelectedBySkidForYear(skids, year);
+        Map<String, Long> selectedYearMap = caseService.mapSelectedBySkidForYear(skids, year);
         Map<String, Long> selectedMonthMap = caseService.mapSelectedBySkidForYearMonth(skids, year, month);
-        Map<String, Long> pendingMap       = caseService.mapPendingBySkid(skids);
+        Map<String, Long> pendingMap = caseService.mapPendingBySkid(skids);
 
         Map<String, TbLmsMember> memberMap = members.stream()
                 .collect(Collectors.toMap(TbLmsMember::getSkid, m -> m));

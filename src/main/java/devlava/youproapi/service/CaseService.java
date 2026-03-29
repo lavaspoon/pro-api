@@ -120,7 +120,7 @@ public class CaseService {
         }
 
         c.judge(req.getDecision(), req.getReason(), req.getAdminSkid(),
-                req.getEditedTranscript(), req.getAiSnapshotJson());
+                req.getAiKeyPhrase(), req.getAiKeyPoint());
         TbYouProCase updated = caseRepository.save(c);
 
         return getCaseDetail(caseId);

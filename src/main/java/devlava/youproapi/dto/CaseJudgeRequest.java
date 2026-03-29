@@ -22,9 +22,9 @@ public class CaseJudgeRequest {
     @NotBlank(message = "판정 사유는 필수입니다.")
     private String reason;
 
-    /** 관리자가 녹취 검토 후 확정한 STT 대화 텍스트 (선택) */
-    private String editedTranscript;
+    /** AI가 추출한 STT 중 핵심 멘트 (선택) */
+    private String aiKeyPhrase;
 
-    /** 1차 AI 분석 결과 JSON 문자열 (선택, 판정과 함께 저장) */
-    private String aiSnapshotJson;
+    /** AI가 전하는 피드백 (JSON 등, 선택) */
+    private String aiKeyPoint;
 }

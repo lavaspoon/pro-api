@@ -6,10 +6,10 @@ import javax.persistence.*;
 import java.time.LocalDateTime;
 
 /**
- * 우수 상담 사례 엔티티 — {@code ragdb.TB_YOUPRO_CASE}
+ * 우수 상담 사례 엔티티 — {@code ragdb.TB_YOU_PRO_CASE}
  *
  * <p>구성원이 접수한 우수 상담 사례와 관리자의 판정 결과를 저장한다.
- * STT 조회 시 저장된 통화 일시 문자열과 {@code skid} 로 {@code TB_STT_RESULT.call_time} 을 조회한다.
+ * STT 조회 시 저장된 통화 일시 문자열과 {@code skid} 로 STT 를 조회한다.
  */
 @Getter
 @Entity
@@ -17,11 +17,11 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Table(
-    name = "TB_YOUPRO_CASE",
+    name = "TB_YOU_PRO_CASE",
     indexes = {
-        @Index(name = "IDX_YOUPRO_CASE_SKID",   columnList = "skid"),
-        @Index(name = "IDX_YOUPRO_CASE_STATUS",  columnList = "status"),
-        @Index(name = "IDX_YOUPRO_CASE_MONTH",   columnList = "skid, status, submitted_at")
+        @Index(name = "IDX_YOU_PRO_CASE_SKID", columnList = "skid"),
+        @Index(name = "IDX_YOU_PRO_CASE_STATUS", columnList = "status"),
+        @Index(name = "IDX_YOU_PRO_CASE_MONTH", columnList = "skid, status, submitted_at")
     }
 )
 public class TbYouProCase {
@@ -80,32 +80,29 @@ public class TbYouProCase {
     @Column(name = "judged_by", length = 50)
     private String judgedBy;
 
-    /** 관리자가 녹취 검토 후 확정한 대화 텍스트(STT 수정본) */
+    /** AI가 추출한 STT 중 핵심 멘트 */
     @Lob
-    @Column(name = "admin_edited_transcript", columnDefinition = "TEXT")
-    private String adminEditedTranscript;
+    @Column(name = "ai_key_phrase", columnDefinition = "TEXT")
+    private String aiKeyPhrase;
 
-    /**
-     * 판정 시 저장하는 1차 AI 분석 스냅샷(JSON).
-     * recommendation, confidence, score, summary, rationale, highlights, chatTurns 등.
-     */
+    /** AI가 전하는 피드백 (JSON 문자열 등 저장 가능) */
     @Lob
-    @Column(name = "ai_snapshot_json", columnDefinition = "TEXT")
-    private String aiSnapshotJson;
+    @Column(name = "ai_key_point", columnDefinition = "TEXT")
+    private String aiKeyPoint;
 
     // ─── 상태 변경 메서드 ───────────────────────────────────────────────────
 
     public void judge(String decision, String reason, String adminSkid,
-                      String adminEditedTranscript, String aiSnapshotJson) {
+                      String aiKeyPhrase, String aiKeyPoint) {
         this.status = decision;
         this.judgmentReason = reason;
         this.judgedAt = LocalDateTime.now();
         this.judgedBy = adminSkid;
-        if (adminEditedTranscript != null) {
-            this.adminEditedTranscript = adminEditedTranscript.isBlank() ? null : adminEditedTranscript;
+        if (aiKeyPhrase != null) {
+            this.aiKeyPhrase = aiKeyPhrase.isBlank() ? null : aiKeyPhrase;
         }
-        if (aiSnapshotJson != null && !aiSnapshotJson.isBlank()) {
-            this.aiSnapshotJson = aiSnapshotJson;
+        if (aiKeyPoint != null && !aiKeyPoint.isBlank()) {
+            this.aiKeyPoint = aiKeyPoint;
         }
     }
 }

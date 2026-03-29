@@ -1,11 +1,11 @@
 package devlava.youproapi.service;
 
+import devlava.youproapi.config.YouproAdminProperties;
 import devlava.youproapi.domain.TbLmsDept;
 import devlava.youproapi.domain.TbLmsMember;
 import devlava.youproapi.dto.MemberHomeResponse;
 import devlava.youproapi.repository.TbLmsDeptRepository;
 import devlava.youproapi.repository.TbLmsMemberRepository;
-import devlava.youproapi.support.AdminDeptScope;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,11 +20,12 @@ import java.util.stream.Collectors;
 public class MemberService {
 
     private static final int MONTHLY_LIMIT = 3;
-    private static final int ANNUAL_LIMIT  = 36;
+    private static final int ANNUAL_LIMIT = 36;
 
     private final TbLmsMemberRepository memberRepository;
     private final TbLmsDeptRepository deptRepository;
     private final CaseService caseService;
+    private final YouproAdminProperties adminProperties;
 
     /**
      * 구성원 홈 화면 데이터.
@@ -35,14 +36,13 @@ public class MemberService {
                 .orElseThrow(() -> new IllegalArgumentException("구성원을 찾을 수 없습니다: " + skid));
 
         LocalDate now = LocalDate.now();
-        int year  = now.getYear();
+        int year = now.getYear();
         int month = now.getMonthValue();
 
-        long myTotalSelected   = caseService.countSelectedBySkidAndYear(skid, year);
-        long monthlySelected   = caseService.countSelectedBySkidAndYearMonth(skid, year, month);
-        long pendingCount      = caseService.countPendingBySkid(skid);
+        long myTotalSelected = caseService.countSelectedBySkidAndYear(skid, year);
+        long monthlySelected = caseService.countSelectedBySkidAndYearMonth(skid, year, month);
+        long pendingCount = caseService.countPendingBySkid(skid);
 
-        // 팀 인당 평균: 동일 부서 구성원들의 연간 선정 평균
         double teamAvgSelected = calcTeamAvg(member.getDeptIdx(), year);
 
         EvalCenterRank evalRank = computeEvalCenterTeamRank(member, year);
@@ -66,22 +66,25 @@ public class MemberService {
     }
 
     /**
-     * 부서 5·7 하위 전체 팀 중, 팀별 연간 선정 건수 합으로 순위를 계산한다.
-     * <p>
-     * 포함 여부는 {@link AdminDeptScope#ROOT_DEPT_IDS} 서브트리 ID 집합뿐 아니라,
-     * {@code TB_LMS_DEPT} 부모 체인을 따라 올라가 5 또는 7을 만나는지로 판별한다
-     * (트리·캐시와 member.dept_idx 불일치로 하위 팀이 누락되는 경우를 방지).
+     * 설정된 2depth(예: 5·6·7) 하위 전체 팀 중, 팀별 연간 선정 건수 합으로 순위를 계산한다.
+     * 부서 트리·부모 맵은 메모리에서 처리 — 구성원별 부서 조회 N+1 없음.
      */
     private EvalCenterRank computeEvalCenterTeamRank(TbLmsMember member, int year) {
         Integer myDept = member.getDeptIdx();
-        if (myDept == null || !isDeptUnderEvaluationCenters(myDept)) {
+        List<TbLmsDept> allDepts = deptRepository.findAllWithParentFetched();
+        Map<Integer, Integer> parentOf = buildParentMap(allDepts);
+        Set<Integer> evalRoots = new HashSet<>(adminProperties.getSecondDepthDeptIds());
+
+        if (myDept == null || !isUnderAnyRoot(myDept, parentOf, evalRoots)) {
             return new EvalCenterRank(false, null, null, null);
         }
 
         Map<Integer, Boolean> evalCache = new HashMap<>();
         List<TbLmsMember> scoped = memberRepository.findByUseYn("Y").stream()
                 .filter(m -> m.getDeptIdx() != null)
-                .filter(m -> evalCache.computeIfAbsent(m.getDeptIdx(), this::isDeptUnderEvaluationCenters))
+                .filter(m -> evalCache.computeIfAbsent(
+                        m.getDeptIdx(),
+                        did -> isUnderAnyRoot(did, parentOf, evalRoots)))
                 .collect(Collectors.toList());
         if (scoped.isEmpty()) {
             return new EvalCenterRank(true, null, 0, 0L);
@@ -120,26 +123,26 @@ public class MemberService {
         return new EvalCenterRank(true, null, totalTeams, myTeamTotal);
     }
 
-    /**
-     * 부서 트리에서 상위로 올라가며 평가 대상 센터({@link AdminDeptScope#ROOT_DEPT_IDS})를 거치는지 확인한다.
-     */
-    private boolean isDeptUnderEvaluationCenters(Integer deptId) {
+    private static Map<Integer, Integer> buildParentMap(List<TbLmsDept> allDepts) {
+        Map<Integer, Integer> parentOf = new HashMap<>();
+        for (TbLmsDept d : allDepts) {
+            Integer id = d.getDeptId();
+            parentOf.put(id, d.getParent() != null ? d.getParent().getDeptId() : null);
+        }
+        return parentOf;
+    }
+
+    /** 부모 포인터만 따라가며 평가 루트(2depth 설정 ID) 도달 여부 — DB 루프 조회 없음 */
+    private static boolean isUnderAnyRoot(Integer deptId, Map<Integer, Integer> parentOf, Set<Integer> evalRoots) {
         if (deptId == null) {
             return false;
         }
         Integer cur = deptId;
-        for (int depth = 0; depth < 64 && cur != null; depth++) {
-            if (AdminDeptScope.ROOT_DEPT_IDS.contains(cur)) {
+        for (int i = 0; i < 64 && cur != null; i++) {
+            if (evalRoots.contains(cur)) {
                 return true;
             }
-            TbLmsDept d = deptRepository.findById(cur).orElse(null);
-            if (d == null) {
-                return false;
-            }
-            if (d.getParent() == null) {
-                break;
-            }
-            cur = d.getParent().getDeptId();
+            cur = parentOf.get(cur);
         }
         return false;
     }
@@ -158,16 +161,21 @@ public class MemberService {
         }
     }
 
+    /** 동일 부서 구성원 선정 건수 합 / 인원 — 배치 map 한 번으로 N+1 방지 */
     private double calcTeamAvg(Integer deptIdx, int year) {
-        if (deptIdx == null) return 0.0;
+        if (deptIdx == null) {
+            return 0.0;
+        }
 
-        java.util.List<TbLmsMember> teamMembers =
-                memberRepository.findByDeptIdxAndUseYn(deptIdx, "Y");
+        List<TbLmsMember> teamMembers = memberRepository.findByDeptIdxAndUseYn(deptIdx, "Y");
+        if (teamMembers.isEmpty()) {
+            return 0.0;
+        }
 
-        if (teamMembers.isEmpty()) return 0.0;
-
+        List<String> skids = teamMembers.stream().map(TbLmsMember::getSkid).collect(Collectors.toList());
+        Map<String, Long> selectedBySkid = caseService.mapSelectedBySkidForYear(skids, year);
         long totalSelected = teamMembers.stream()
-                .mapToLong(m -> caseService.countSelectedBySkidAndYear(m.getSkid(), year))
+                .mapToLong(m -> selectedBySkid.getOrDefault(m.getSkid(), 0L))
                 .sum();
 
         return (double) totalSelected / teamMembers.size();

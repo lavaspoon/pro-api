@@ -28,10 +28,10 @@ COMMENT ON COLUMN TB_YOUPRO_ROLE.role   IS '역할 (관리자 | 담당자)';
 -- INSERT INTO TB_YOUPRO_ROLE (skid, role) VALUES ('USR010', '관리자');
 
 -- =============================================================================
--- 2. TB_YOUPRO_CASE
+-- 2. TB_YOU_PRO_CASE
 --    우수 상담 사례 접수 및 판정 내역
 -- =============================================================================
-CREATE TABLE IF NOT EXISTS TB_YOUPRO_CASE (
+CREATE TABLE IF NOT EXISTS TB_YOU_PRO_CASE (
     case_id          BIGSERIAL       NOT NULL,
     skid             VARCHAR(50)     NOT NULL,               -- 접수자 SK ID
     title            VARCHAR(200)    NOT NULL,               -- 사례 제목
@@ -43,49 +43,49 @@ CREATE TABLE IF NOT EXISTS TB_YOUPRO_CASE (
     judgment_reason  TEXT,                                   -- 판정 사유
     judged_at        TIMESTAMP,                              -- 판정 시각
     judged_by        VARCHAR(50),                            -- 판정자 SK ID
-    admin_edited_transcript TEXT,                           -- 관리자 확정 STT 대화 텍스트
-    ai_snapshot_json      TEXT,                           -- 1차 AI 분석 스냅샷(JSON)
-    CONSTRAINT PK_TB_YOUPRO_CASE PRIMARY KEY (case_id)
+    ai_key_phrase    TEXT,                                   -- AI가 추출한 STT 중 핵심 멘트
+    ai_key_point     TEXT,                                   -- AI가 전하는 피드백 (JSON 등)
+    CONSTRAINT PK_TB_YOU_PRO_CASE PRIMARY KEY (case_id)
 );
 
-COMMENT ON TABLE  TB_YOUPRO_CASE                  IS 'YouPro 우수 상담 사례';
-COMMENT ON COLUMN TB_YOUPRO_CASE.case_id          IS '사례 고유 ID (BIGSERIAL)';
-COMMENT ON COLUMN TB_YOUPRO_CASE.skid             IS '접수자 SK ID';
-COMMENT ON COLUMN TB_YOUPRO_CASE.title            IS '사례 제목';
-COMMENT ON COLUMN TB_YOUPRO_CASE.description      IS '응대 내용 요약';
-COMMENT ON COLUMN TB_YOUPRO_CASE.submitted_at     IS '접수 시각';
-COMMENT ON COLUMN TB_YOUPRO_CASE.status           IS '상태 (pending | selected | rejected)';
-COMMENT ON COLUMN TB_YOUPRO_CASE.call_date        IS '통화 일시 - STT 유선_유프로_STT 일자·상담시간 매칭용 (예: 2026-03-05 16:00:00)';
-COMMENT ON COLUMN TB_YOUPRO_CASE.customer_type    IS '고객 유형';
-COMMENT ON COLUMN TB_YOUPRO_CASE.judgment_reason  IS '판정 사유';
-COMMENT ON COLUMN TB_YOUPRO_CASE.judged_at        IS '판정 시각';
-COMMENT ON COLUMN TB_YOUPRO_CASE.judged_by        IS '판정자 SK ID';
+COMMENT ON TABLE  TB_YOU_PRO_CASE                  IS 'YouPro 우수 상담 사례';
+COMMENT ON COLUMN TB_YOU_PRO_CASE.case_id          IS '사례 고유 ID (BIGSERIAL)';
+COMMENT ON COLUMN TB_YOU_PRO_CASE.skid             IS '접수자 SK ID';
+COMMENT ON COLUMN TB_YOU_PRO_CASE.title            IS '사례 제목';
+COMMENT ON COLUMN TB_YOU_PRO_CASE.description      IS '응대 내용 요약';
+COMMENT ON COLUMN TB_YOU_PRO_CASE.submitted_at     IS '접수 시각';
+COMMENT ON COLUMN TB_YOU_PRO_CASE.status           IS '상태 (pending | selected | rejected)';
+COMMENT ON COLUMN TB_YOU_PRO_CASE.call_date        IS '통화 일시 - STT TB_YOU_PRO_STT.reg_date·skid 매칭용 (예: 2026-03-05 16:00:00)';
+COMMENT ON COLUMN TB_YOU_PRO_CASE.customer_type    IS '고객 유형';
+COMMENT ON COLUMN TB_YOU_PRO_CASE.judgment_reason  IS '판정 사유';
+COMMENT ON COLUMN TB_YOU_PRO_CASE.judged_at        IS '판정 시각';
+COMMENT ON COLUMN TB_YOU_PRO_CASE.judged_by        IS '판정자 SK ID';
+COMMENT ON COLUMN TB_YOU_PRO_CASE.ai_key_phrase    IS 'AI가 추출한 STT 중 핵심 멘트';
+COMMENT ON COLUMN TB_YOU_PRO_CASE.ai_key_point      IS 'AI가 전하는 피드백';
 
-CREATE INDEX IF NOT EXISTS IDX_YOUPRO_CASE_SKID   ON TB_YOUPRO_CASE (skid);
-CREATE INDEX IF NOT EXISTS IDX_YOUPRO_CASE_STATUS ON TB_YOUPRO_CASE (status);
-CREATE INDEX IF NOT EXISTS IDX_YOUPRO_CASE_MONTH  ON TB_YOUPRO_CASE (skid, status, submitted_at);
+CREATE INDEX IF NOT EXISTS IDX_YOU_PRO_CASE_SKID   ON TB_YOU_PRO_CASE (skid);
+CREATE INDEX IF NOT EXISTS IDX_YOU_PRO_CASE_STATUS ON TB_YOU_PRO_CASE (status);
+CREATE INDEX IF NOT EXISTS IDX_YOU_PRO_CASE_MONTH  ON TB_YOU_PRO_CASE (skid, status, submitted_at);
 
--- 기존 DB 마이그레이션: 엔티티와 불일치 시 아래 또는 ragdb_migration_add_case_columns.sql 실행
--- ALTER TABLE tb_youpro_case ADD COLUMN IF NOT EXISTS admin_edited_transcript TEXT;
--- ALTER TABLE tb_youpro_case ADD COLUMN IF NOT EXISTS ai_snapshot_json TEXT;
+-- 기존 TB_YOUPRO_CASE 마이그레이션: ragdb_migration_tb_you_pro_case.sql 참고
 
 -- =============================================================================
--- 3. 유선_유프로_STT
---    STT 전사 (일자 YYYYMMDD + 상담시간 HHMM 으로 사례 call_date 와 매칭)
+-- 3. TB_YOU_PRO_STT
+--    STT 전사 (skid + reg_date 숫자열이 사례 skid·call_date 와 매칭)
 --    [참고] 운영 DB가 SQL Server 인 경우 동일 스키마로 테이블 생성 후 연동
 -- =============================================================================
-CREATE TABLE IF NOT EXISTS "유선_유프로_STT" (
-    "Num"        BIGSERIAL    NOT NULL,
-    "일자"       VARCHAR(20),
-    "STT원본"    TEXT,
-    "상담시간"   VARCHAR(20),
-    "상담사ID"   VARCHAR(20),
-    CONSTRAINT PK_유선_유프로_STT PRIMARY KEY ("Num")
+CREATE TABLE IF NOT EXISTS "TB_YOU_PRO_STT" (
+    stt_id    BIGSERIAL       NOT NULL,
+    skid      VARCHAR(30),
+    reg_date  VARCHAR(30),
+    stt       TEXT,
+    CONSTRAINT PK_TB_YOU_PRO_STT PRIMARY KEY (stt_id)
 );
 
-COMMENT ON TABLE  "유선_유프로_STT"      IS 'STT 전사 (유선 유프로)';
-COMMENT ON COLUMN "유선_유프로_STT"."Num"       IS '일련번호';
-COMMENT ON COLUMN "유선_유프로_STT"."일자"      IS '상담일자 (예: 20260221)';
-COMMENT ON COLUMN "유선_유프로_STT"."STT원본"   IS 'STT 전체 전사';
-COMMENT ON COLUMN "유선_유프로_STT"."상담시간" IS '시각 (예: 1600 = 16시 00분)';
-COMMENT ON COLUMN "유선_유프로_STT"."상담사ID" IS '상담사 ID';
+COMMENT ON TABLE  "TB_YOU_PRO_STT" IS 'STT 전사 (유선 유프로)';
+COMMENT ON COLUMN "TB_YOU_PRO_STT".stt_id   IS '일련번호 (자동 증가)';
+COMMENT ON COLUMN "TB_YOU_PRO_STT".skid     IS '상담사 SK ID (사례 skid 와 매칭)';
+COMMENT ON COLUMN "TB_YOU_PRO_STT".reg_date IS '등록·통화 일시 문자열 (call_date 와 숫자 정규화 비교)';
+COMMENT ON COLUMN "TB_YOU_PRO_STT".stt      IS 'STT 전체 전사';
+
+CREATE INDEX IF NOT EXISTS IDX_TB_YOU_PRO_STT_SKID ON "TB_YOU_PRO_STT" (skid);

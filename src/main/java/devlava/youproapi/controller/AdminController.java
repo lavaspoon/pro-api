@@ -1,6 +1,8 @@
 package devlava.youproapi.controller;
 
 import devlava.youproapi.dto.AdminDashboardResponse;
+import devlava.youproapi.dto.AdminLeafTeamsResponse;
+import devlava.youproapi.dto.AdminRankingResponse;
 import devlava.youproapi.dto.AdminReviewQueueResponse;
 import devlava.youproapi.dto.CaseJudgeRequest;
 import devlava.youproapi.dto.CaseResponse;
@@ -11,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -27,6 +30,28 @@ public class AdminController {
     @GetMapping("/dashboard")
     public ResponseEntity<AdminDashboardResponse> getDashboard() {
         return ResponseEntity.ok(adminService.getDashboard());
+    }
+
+    /**
+     * 2depth 부서 선택 시 하위 leaf(4depth) 팀 목록·집계 — 쿼리 배치, N+1 없음
+     * GET /api/admin/filter/leaf-teams?secondDepthDeptId=5 (생략 시 설정된 2depth 전체 하위 leaf 합집합)
+     */
+    @GetMapping("/filter/leaf-teams")
+    public ResponseEntity<AdminLeafTeamsResponse> getLeafTeams(
+            @RequestParam(required = false) Integer secondDepthDeptId) {
+        return ResponseEntity.ok(adminService.getLeafTeamsForSecondDepth(secondDepthDeptId));
+    }
+
+    /**
+     * 랭킹 — TB_YOU_PRO_CASE 연도별 접수 건수 기준, 2depth 센터별 접수 합계 + 상위 N명
+     * GET /api/admin/ranking?year=2026&topN=3
+     */
+    @GetMapping("/ranking")
+    public ResponseEntity<AdminRankingResponse> getRanking(
+            @RequestParam(required = false) Integer year,
+            @RequestParam(defaultValue = "3") int topN) {
+        int y = year != null ? year : LocalDate.now().getYear();
+        return ResponseEntity.ok(adminService.getRanking(y, topN));
     }
 
     /**

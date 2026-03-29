@@ -39,6 +39,15 @@ decorator:
       logging: slf4j
       log-format: "%(currentTime) | %(executionTime)ms | %(category) | %(sqlSingleLine)"
 
+# 관리자 대시보드: 2depth 필터 부서 ID·리프 팀 depth (프론트에서 변경 불가)
+youpro:
+  admin:
+    second-depth-dept-ids:
+      - 5
+      - 6
+      - 7
+    leaf-team-depth: 4
+
 logging:
   level:
     root: INFO
