@@ -1,7 +1,5 @@
 package devlava.youproapi.service;
 
-import devlava.youproapi.config.YouproAdminProperties;
-import devlava.youproapi.domain.TbLmsDept;
 import devlava.youproapi.domain.TbLmsMember;
 import devlava.youproapi.dto.MemberHomeResponse;
 import devlava.youproapi.repository.TbLmsDeptRepository;
@@ -25,7 +23,7 @@ public class MemberService {
     private final TbLmsMemberRepository memberRepository;
     private final TbLmsDeptRepository deptRepository;
     private final CaseService caseService;
-    private final YouproAdminProperties adminProperties;
+    private final AdminDeptScopeResolver deptScopeResolver;
 
     /**
      * 구성원 홈 화면 데이터.
@@ -66,25 +64,17 @@ public class MemberService {
     }
 
     /**
-     * 설정된 2depth(예: 5·6·7) 하위 전체 팀 중, 팀별 연간 선정 건수 합으로 순위를 계산한다.
-     * 부서 트리·부모 맵은 메모리에서 처리 — 구성원별 부서 조회 N+1 없음.
+     * 평가 센터 팀 순위 — 관리자와 동일한 {@link AdminDeptScopeResolver} 범위(전체 서브트리 또는 leaf-dept-ids-by-second-depth) 내 팀만 집계.
      */
     private EvalCenterRank computeEvalCenterTeamRank(TbLmsMember member, int year) {
         Integer myDept = member.getDeptIdx();
-        List<TbLmsDept> allDepts = deptRepository.findAllWithParentFetched();
-        Map<Integer, Integer> parentOf = buildParentMap(allDepts);
-        Set<Integer> evalRoots = new HashSet<>(adminProperties.getSecondDepthDeptIds());
-
-        if (myDept == null || !isUnderAnyRoot(myDept, parentOf, evalRoots)) {
+        Set<Integer> allowedDeptIds = deptScopeResolver.resolveAllowedDeptIds();
+        if (myDept == null || !allowedDeptIds.contains(myDept)) {
             return new EvalCenterRank(false, null, null, null);
         }
 
-        Map<Integer, Boolean> evalCache = new HashMap<>();
         List<TbLmsMember> scoped = memberRepository.findByUseYn("Y").stream()
-                .filter(m -> m.getDeptIdx() != null)
-                .filter(m -> evalCache.computeIfAbsent(
-                        m.getDeptIdx(),
-                        did -> isUnderAnyRoot(did, parentOf, evalRoots)))
+                .filter(m -> m.getDeptIdx() != null && allowedDeptIds.contains(m.getDeptIdx()))
                 .collect(Collectors.toList());
         if (scoped.isEmpty()) {
             return new EvalCenterRank(true, null, 0, 0L);
@@ -121,30 +111,6 @@ public class MemberService {
         }
 
         return new EvalCenterRank(true, null, totalTeams, myTeamTotal);
-    }
-
-    private static Map<Integer, Integer> buildParentMap(List<TbLmsDept> allDepts) {
-        Map<Integer, Integer> parentOf = new HashMap<>();
-        for (TbLmsDept d : allDepts) {
-            Integer id = d.getDeptId();
-            parentOf.put(id, d.getParent() != null ? d.getParent().getDeptId() : null);
-        }
-        return parentOf;
-    }
-
-    /** 부모 포인터만 따라가며 평가 루트(2depth 설정 ID) 도달 여부 — DB 루프 조회 없음 */
-    private static boolean isUnderAnyRoot(Integer deptId, Map<Integer, Integer> parentOf, Set<Integer> evalRoots) {
-        if (deptId == null) {
-            return false;
-        }
-        Integer cur = deptId;
-        for (int i = 0; i < 64 && cur != null; i++) {
-            if (evalRoots.contains(cur)) {
-                return true;
-            }
-            cur = parentOf.get(cur);
-        }
-        return false;
     }
 
     private static final class EvalCenterRank {

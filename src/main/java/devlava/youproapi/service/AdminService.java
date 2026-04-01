@@ -67,6 +67,11 @@ public class AdminService {
                 ? AdminDeptScope.listLeafDeptsUnderAnyRoot(allDepts, cfg, leafDepth)
                 : AdminDeptScope.listDeptsOfDepthInSubtree(allDepts, secondDepthDeptId, leafDepth);
 
+        Set<Integer> scopeIds = deptScopeResolver.resolveAllowedDeptIds();
+        leafDepts = leafDepts.stream()
+                .filter(d -> scopeIds.contains(d.getDeptId()))
+                .collect(Collectors.toList());
+
         List<TeamSummary> teams = buildLeafTeamSummaries(leafDepts);
         return AdminLeafTeamsResponse.builder()
                 .secondDepthDeptId(secondDepthDeptId)
@@ -194,8 +199,10 @@ public class AdminService {
                     .build());
         }
 
+        Map<Integer, List<Integer>> leafByRoot = adminProperties.getLeafDeptIdsBySecondDepth();
         return AdminFilterMetaResponse.builder()
                 .leafTeamDepth(adminProperties.getLeafTeamDepth())
+                .leafDeptIdsBySecondDepth(leafByRoot != null ? new LinkedHashMap<>(leafByRoot) : new LinkedHashMap<>())
                 .secondDepthDepts(opts)
                 .build();
     }

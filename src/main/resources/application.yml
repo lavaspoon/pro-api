@@ -40,13 +40,22 @@ decorator:
       log-format: "%(currentTime) | %(executionTime)ms | %(category) | %(sqlSingleLine)"
 
 # 관리자 대시보드: 2depth 필터 부서 ID·리프 팀 depth (프론트에서 변경 불가)
+# leaf-dept-ids-by-second-depth 를 비우면 각 second-depth 하위 전체 서브트리가 스코프.
+# 값이 있으면: 키 = 2depth 센터 dept_id, 값 = 그 센터 하위에서 허용할 leaf(5depth) 팀 dept_id.
+#   키를 생략한 센터 → 해당 센터는 leaf depth 팀 전체. 키만 있고 [] → 그 센터 leaf 팀 없음.
 youpro:
   admin:
     second-depth-dept-ids:
       - 5
       - 6
-      - 7
-    leaf-team-depth: 4
+    leaf-team-depth: 5
+    leaf-dept-ids-by-second-depth: {}
+    # leaf-dept-ids-by-second-depth:
+    #   5:
+    #     - 10001
+    #     - 10002
+    #   6:
+    #     - 20001
 
 logging:
   level:
