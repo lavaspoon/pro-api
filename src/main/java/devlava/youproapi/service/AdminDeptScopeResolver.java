@@ -42,6 +42,25 @@ public class AdminDeptScopeResolver {
         return resolveLeafDeptAllowlistBySecondDepth(depts, byRoot);
     }
 
+    /**
+     * 구성원 홈 «팀 순위»용 — {@code youpro.admin.second-depth-dept-ids} 및
+     * {@code leaf-dept-ids-by-second-depth}에 맞는 <strong>리프 팀</strong> dept_id 만.
+     * (관리자 필터의 allowedDeptIds 는 leaf 맵이 비어 있을 때 전체 서브트리를 쓰지만, 순위는 팀 단위이므로 리프만 사용.)
+     */
+    @Cacheable(cacheNames = "adminDeptScope", key = "'leafTeamDeptIds'", sync = true)
+    public Set<Integer> resolveLeafTeamDeptIds() {
+        List<TbLmsDept> depts = deptRepository.findAllWithParentFetched();
+        Map<Integer, List<Integer>> byRoot = adminProperties.getLeafDeptIdsBySecondDepth();
+        if (byRoot == null || byRoot.isEmpty()) {
+            return AdminDeptScope.listLeafDeptsUnderAnyRoot(
+                            depts, adminProperties.getSecondDepthDeptIds(), adminProperties.getLeafTeamDepth())
+                    .stream()
+                    .map(TbLmsDept::getDeptId)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+        }
+        return resolveLeafDeptAllowlistBySecondDepth(depts, byRoot);
+    }
+
     private Set<Integer> resolveLeafDeptAllowlistBySecondDepth(
             List<TbLmsDept> depts, Map<Integer, List<Integer>> byRoot) {
         int leafDepth = adminProperties.getLeafTeamDepth();

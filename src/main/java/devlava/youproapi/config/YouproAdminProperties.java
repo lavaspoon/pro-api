@@ -20,12 +20,12 @@ public class YouproAdminProperties {
     /**
      * 2depth 필터에 쓰는 TB_LMS_DEPT.dept_id 목록 (고정 후보).
      */
-    private List<Integer> secondDepthDeptIds = new ArrayList<>(List.of(5, 6, 7));
+    private List<Integer> secondDepthDeptIds = new ArrayList<>(List.of(5, 6));
 
     /**
      * 필터 선택 시 하단에 나열할 팀의 depth (예: 5).
      */
-    private int leafTeamDepth = 5;
+    private int leafTeamDepth = 2;
 
     /**
      * 비어 있으면: 설정된 각 2depth 루트 하위 전체 서브트리가 스코프.

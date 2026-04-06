@@ -1,6 +1,6 @@
 package devlava.youproapi.dto;
 
-import devlava.youproapi.domain.TbYouStt;
+import devlava.youproapi.domain.TbYouProStt;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -17,7 +17,7 @@ public class SttResultDto {
     private String callDuration;
     private boolean found;
 
-    public static SttResultDto from(TbYouStt row) {
+    public static SttResultDto from(TbYouProStt row) {
         return SttResultDto.builder()
                 .sttId(String.valueOf(row.getSttId()))
                 .callTime(row.getRegDate() != null ? row.getRegDate().trim() : "")

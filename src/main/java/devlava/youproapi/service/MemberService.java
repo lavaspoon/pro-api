@@ -64,11 +64,12 @@ public class MemberService {
     }
 
     /**
-     * 평가 센터 팀 순위 — 관리자와 동일한 {@link AdminDeptScopeResolver} 범위(전체 서브트리 또는 leaf-dept-ids-by-second-depth) 내 팀만 집계.
+     * 팀 순위 — {@code application.yml} 의 {@code youpro.admin.second-depth-dept-ids}(및 leaf 설정)에 해당하는
+     * 리프 팀들만 대상으로, 해당 연도 팀 단위 선정 건수 합 기준 순위.
      */
     private EvalCenterRank computeEvalCenterTeamRank(TbLmsMember member, int year) {
         Integer myDept = member.getDeptIdx();
-        Set<Integer> allowedDeptIds = deptScopeResolver.resolveAllowedDeptIds();
+        Set<Integer> allowedDeptIds = deptScopeResolver.resolveLeafTeamDeptIds();
         if (myDept == null || !allowedDeptIds.contains(myDept)) {
             return new EvalCenterRank(false, null, null, null);
         }

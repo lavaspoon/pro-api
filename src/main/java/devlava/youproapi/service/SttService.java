@@ -1,10 +1,11 @@
 package devlava.youproapi.service;
 
-import devlava.youproapi.domain.TbYouStt;
+import devlava.youproapi.domain.TbYouProStt;
 import devlava.youproapi.dto.SttResultDto;
 import devlava.youproapi.repository.TbYouSttRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,15 +39,23 @@ public class SttService {
             return SttResultDto.notFound(callDate);
         }
         IlJaSangdam k = keys.get();
-        List<TbYouStt> rows = youSttRepository.findBySkidOrderBySttIdAsc(agentSkid.trim());
+        final List<TbYouProStt> rows;
+        try {
+            rows = youSttRepository.findBySkidOrderBySttIdAsc(agentSkid.trim());
+        } catch (DataAccessException e) {
+            log.warn(
+                    "[STT] TB_YOU_PRO_STT 조회 실패 — 테이블 미생성·권한·스키마 문제일 수 있음. STT 없이 진행합니다. cause={}",
+                    e.getMostSpecificCause().getMessage());
+            return SttResultDto.notFound(callDate);
+        }
 
-        Optional<TbYouStt> exact = pickExact(rows, k.ilja(), k.sangdamSiGan());
+        Optional<TbYouProStt> exact = pickExact(rows, k.ilja(), k.sangdamSiGan());
         if (exact.isPresent()) {
             log.debug("[STT] skid·일자·상담시간 조회 성공 | callDate='{}'", callDate);
             return SttResultDto.from(exact.get());
         }
         if (k.sangdamSiGan().length() >= 4) {
-            Optional<TbYouStt> like = pickPrefix(rows, k.ilja(), k.sangdamSiGan());
+            Optional<TbYouProStt> like = pickPrefix(rows, k.ilja(), k.sangdamSiGan());
             if (like.isPresent()) {
                 return SttResultDto.from(like.get());
             }
@@ -56,9 +65,9 @@ public class SttService {
     }
 
     /** {@code reg_date} 에서 숫자만 남긴 문자열이 {@code 일자+상담시간} 과 같을 때까지 {@code stt_id} 순으로 탐색. */
-    private static Optional<TbYouStt> pickExact(List<TbYouStt> rows, String ilja, String sangdamSiGan) {
+    private static Optional<TbYouProStt> pickExact(List<TbYouProStt> rows, String ilja, String sangdamSiGan) {
         String target = ilja + sangdamSiGan;
-        for (TbYouStt t : rows) {
+        for (TbYouProStt t : rows) {
             if (digitsOnly(t.getRegDate()).equals(target)) {
                 return Optional.of(t);
             }
@@ -67,9 +76,9 @@ public class SttService {
     }
 
     /** {@code reg_date} 숫자열이 {@code 일자 + 상담시간 앞 4자리} 로 시작하는 첫 행 (기존 LIKE 접두사 매칭). */
-    private static Optional<TbYouStt> pickPrefix(List<TbYouStt> rows, String ilja, String sangdamSiGan) {
+    private static Optional<TbYouProStt> pickPrefix(List<TbYouProStt> rows, String ilja, String sangdamSiGan) {
         String head = ilja + sangdamSiGan.substring(0, 4);
-        for (TbYouStt t : rows) {
+        for (TbYouProStt t : rows) {
             String reg = digitsOnly(t.getRegDate());
             if (reg.startsWith(head)) {
                 return Optional.of(t);

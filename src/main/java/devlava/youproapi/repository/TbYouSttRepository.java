@@ -1,6 +1,6 @@
 package devlava.youproapi.repository;
 
-import devlava.youproapi.domain.TbYouStt;
+import devlava.youproapi.domain.TbYouProStt;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -10,7 +10,7 @@ import java.util.List;
  * <p>PostgreSQL / MS SQL 모두에서 동작하도록 DB별 {@code regexp_replace} 등은 사용하지 않고,
  * {@code skid} 로만 적재한 뒤 {@link devlava.youproapi.service.SttService} 에서 {@code reg_date} 숫자 정규화 매칭을 수행한다.
  */
-public interface TbYouSttRepository extends JpaRepository<TbYouStt, Long> {
+public interface TbYouSttRepository extends JpaRepository<TbYouProStt, Long> {
 
-    List<TbYouStt> findBySkidOrderBySttIdAsc(String skid);
+    List<TbYouProStt> findBySkidOrderBySttIdAsc(String skid);
 }

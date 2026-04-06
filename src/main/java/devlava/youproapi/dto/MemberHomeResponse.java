@@ -29,8 +29,8 @@ public class MemberHomeResponse {
     private int annualLimit;
 
     /**
-     * 평가 대상 센터(TB_LMS_DEPT 부서 5·7) 하위 팀 기준 연간 선정 합 순위.
-     * 소속 팀이 해당 범위에 없으면 inScope=false.
+     * {@code youpro.admin}에 설정된 부서 범위 내 리프 팀 기준, 해당 연도 팀 선정 건수 합 순위.
+     * 소속 팀이 범위에 없으면 inScope=false.
      */
     private boolean evalCenterInScope;
 
