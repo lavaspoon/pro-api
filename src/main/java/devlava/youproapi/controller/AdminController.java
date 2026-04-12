@@ -6,13 +6,23 @@ import devlava.youproapi.dto.AdminRankingResponse;
 import devlava.youproapi.dto.AdminReviewQueueResponse;
 import devlava.youproapi.dto.CaseJudgeRequest;
 import devlava.youproapi.dto.CaseResponse;
+import devlava.youproapi.dto.CsSatisfactionCenterMonthDetailResponse;
+import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsRequest;
+import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsResponse;
+import devlava.youproapi.dto.CsSatisfactionMonthlyTrendResponse;
+import devlava.youproapi.dto.CsSatisfactionSummaryResponse;
+import devlava.youproapi.dto.CsSatisfactionUploadResponse;
 import devlava.youproapi.dto.TeamDetailResponse;
 import devlava.youproapi.service.AdminService;
+import devlava.youproapi.service.CsSatisfactionService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.validation.Valid;
+import java.io.IOException;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -22,6 +32,7 @@ import java.util.List;
 public class AdminController {
 
     private final AdminService adminService;
+    private final CsSatisfactionService csSatisfactionService;
 
     /**
      * 관리자 대시보드
@@ -99,5 +110,72 @@ public class AdminController {
             @PathVariable Long caseId,
             @Valid @RequestBody CaseJudgeRequest req) {
         return ResponseEntity.ok(adminService.judgeCase(caseId, req));
+    }
+
+    /**
+     * CS 만족도 — 실(2depth)별 연간 요약
+     * GET /api/admin/cs-satisfaction/summary?year=&secondDepthDeptId=
+     */
+    @GetMapping("/cs-satisfaction/summary")
+    public ResponseEntity<CsSatisfactionSummaryResponse> csSatisfactionSummary(
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer secondDepthDeptId) {
+        return ResponseEntity.ok(csSatisfactionService.getSummary(year, secondDepthDeptId));
+    }
+
+    /**
+     * CS 만족도 — 선택 실의 올해 월별 평가·만족 건수
+     * GET /api/admin/cs-satisfaction/monthly-trend?year=&secondDepthDeptId=
+     */
+    @GetMapping("/cs-satisfaction/monthly-trend")
+    public ResponseEntity<CsSatisfactionMonthlyTrendResponse> csSatisfactionMonthlyTrend(
+            @RequestParam(required = false) Integer year,
+            @RequestParam int secondDepthDeptId) {
+        int y = year != null ? year : LocalDate.now().getYear();
+        return ResponseEntity.ok(csSatisfactionService.getMonthlyTrend(y, secondDepthDeptId));
+    }
+
+    /**
+     * 선택 센터의 해당 연·월 만족도 요약 + 구성원별 건수 (기본: 올해 이번 달)
+     * GET /api/admin/cs-satisfaction/center-month-detail?secondDepthDeptId=&year=&month=
+     */
+    @GetMapping("/cs-satisfaction/center-month-detail")
+    public ResponseEntity<CsSatisfactionCenterMonthDetailResponse> csSatisfactionCenterMonthDetail(
+            @RequestParam int secondDepthDeptId,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
+        return ResponseEntity.ok(csSatisfactionService.getCenterMonthDetail(secondDepthDeptId, year, month));
+    }
+
+    /**
+     * CS 만족도 엑셀 업로드 (.xlsx) — 파일에 포함된 날짜는 기존 행 삭제 후 재적재
+     * POST /api/admin/cs-satisfaction/upload  (multipart file 필드명: file)
+     */
+    @PostMapping(value = "/cs-satisfaction/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<CsSatisfactionUploadResponse> csSatisfactionUpload(
+            @RequestPart("file") MultipartFile file) throws IOException {
+        return ResponseEntity.ok(csSatisfactionService.uploadExcel(file));
+    }
+
+    /**
+     * 월간 목표(%) 조회 — 상위 센터별 저장 여부 포함 (엑셀 업로드 전 완료 확인용). DB에는 해당 월 1일로 저장.
+     * GET /api/admin/cs-satisfaction/monthly-targets?year=&month=
+     */
+    @GetMapping("/cs-satisfaction/monthly-targets")
+    public ResponseEntity<CsSatisfactionMonthlyTargetsResponse> csSatisfactionMonthlyTargetsGet(
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
+        return ResponseEntity.ok(csSatisfactionService.getMonthlyTargets(year, month));
+    }
+
+    /**
+     * 월간 목표(%) 등록·수정 (센터별, 월 1회)
+     * POST /api/admin/cs-satisfaction/monthly-targets
+     */
+    @PostMapping("/cs-satisfaction/monthly-targets")
+    public ResponseEntity<Void> csSatisfactionMonthlyTargets(
+            @Valid @RequestBody CsSatisfactionMonthlyTargetsRequest req) {
+        csSatisfactionService.upsertMonthlyTargets(req);
+        return ResponseEntity.ok().build();
     }
 }
