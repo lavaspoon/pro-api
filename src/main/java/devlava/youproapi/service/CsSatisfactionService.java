@@ -74,8 +74,8 @@ public class CsSatisfactionService {
         Map<String, TbLmsMember> memberBySkid = skids.isEmpty()
                 ? Map.of()
                 : memberRepository.findAllById(skids).stream()
-                .filter(m -> m.getSkid() != null)
-                .collect(Collectors.toMap(TbLmsMember::getSkid, m -> m, (a, b) -> a));
+                        .filter(m -> m.getSkid() != null)
+                        .collect(Collectors.toMap(TbLmsMember::getSkid, m -> m, (a, b) -> a));
 
         List<TbLmsDept> allDepts = deptRepository.findAllWithParentFetched();
         Map<Integer, Integer> parentOf = buildParentMap(allDepts);
@@ -195,8 +195,8 @@ public class CsSatisfactionService {
         Map<String, TbLmsMember> memberBySkid = skids.isEmpty()
                 ? Map.of()
                 : memberRepository.findAllById(skids).stream()
-                .filter(m -> m.getSkid() != null)
-                .collect(Collectors.toMap(TbLmsMember::getSkid, m -> m, (a, b) -> a));
+                        .filter(m -> m.getSkid() != null)
+                        .collect(Collectors.toMap(TbLmsMember::getSkid, m -> m, (a, b) -> a));
 
         List<TbLmsDept> allDepts = deptRepository.findAllWithParentFetched();
         Map<Integer, Integer> parentOf = buildParentMap(allDepts);
@@ -264,7 +264,8 @@ public class CsSatisfactionService {
 
     /**
      * <strong>해당 연·월</strong> 만족도 요약 + 구성원(skid)별 건수.
-     * {@code secondDepthDeptId} 는 (1) {@code youpro.admin.second-depth-dept-ids} 에 등록된 <em>센터</em> id 이거나,
+     * {@code secondDepthDeptId} 는 (1) {@code youpro.admin.second-depth-dept-ids} 에
+     * 등록된 <em>센터</em> id 이거나,
      * (2) 연간 요약 표({@link #getSummary}) 각 행과 동일한 <em>리프 팀</em> dept id 여야 한다.
      */
     public CsSatisfactionCenterMonthDetailResponse getCenterMonthDetail(
@@ -302,8 +303,8 @@ public class CsSatisfactionService {
         Map<String, TbLmsMember> memberBySkid = skids.isEmpty()
                 ? Map.of()
                 : memberRepository.findAllById(skids).stream()
-                .filter(m -> m.getSkid() != null)
-                .collect(Collectors.toMap(TbLmsMember::getSkid, m -> m, (a, b) -> a));
+                        .filter(m -> m.getSkid() != null)
+                        .collect(Collectors.toMap(TbLmsMember::getSkid, m -> m, (a, b) -> a));
 
         Agg total = new Agg();
         Map<String, Agg> bySkid = new LinkedHashMap<>();
@@ -426,10 +427,11 @@ public class CsSatisfactionService {
                     TbCsDissatisfactionType dissType = null;
                     if (pr.dissTypeLabel != null && !pr.dissTypeLabel.isBlank()) {
                         String key = pr.dissTypeLabel.trim();
-                        dissType = dissTypesByName.computeIfAbsent(key, k ->
-                                dissatisfactionTypeRepository.findByTypeName(k).orElseGet(() -> {
+                        dissType = dissTypesByName.computeIfAbsent(key,
+                                k -> dissatisfactionTypeRepository.findByTypeName(k).orElseGet(() -> {
                                     TbCsDissatisfactionType n = new TbCsDissatisfactionType();
-                                    n.setTypeCode("AUTO_" + UUID.randomUUID().toString().replace("-", "").substring(0, 20));
+                                    n.setTypeCode(
+                                            "AUTO_" + UUID.randomUUID().toString().replace("-", "").substring(0, 20));
                                     n.setTypeName(k);
                                     n.setCreatedAt(Instant.now());
                                     return dissatisfactionTypeRepository.save(n);
@@ -585,7 +587,8 @@ public class CsSatisfactionService {
     }
 
     /**
-     * {@link AdminService#getLeafTeamsForSecondDepth(Integer)} 와 동일 규칙으로 하위 팀 목록을 만든 뒤,
+     * {@link AdminService#getLeafTeamsForSecondDepth(Integer)} 와 동일 규칙으로 하위 팀 목록을
+     * 만든 뒤,
      * {@code second-depth-dept-ids} 에 해당하는 상위 센터(필터 전용)는 행에서 제외한다.
      */
     private List<TbLmsDept> listConfiguredLeafTeams(List<TbLmsDept> allDepts, Integer secondDepthCenterId) {
@@ -629,7 +632,8 @@ public class CsSatisfactionService {
     }
 
     /**
-     * 구성원 부서를 {@code youpro.admin} 리프 팀 ID로 귀속. 부서가 리프 본인이거나, 그 하위에 속한 단일 리프 후보가 있으면
+     * 구성원 부서를 {@code youpro.admin} 리프 팀 ID로 귀속. 부서가 리프 본인이거나, 그 하위에 속한 단일 리프 후보가
+     * 있으면
      * (여러 개면 dept_id 최소) 반환.
      */
     private static Integer resolveLeafBucket(
@@ -675,8 +679,8 @@ public class CsSatisfactionService {
 
     /** 연도 요약용 — 해당 연도 구간의 월 목표 행(각 월 1일) 평균. */
     private Double averageTargetPercentForYear(int secondDepthDeptId, LocalDate from, LocalDate to) {
-        List<TbCsSatisfactionDailyTarget> list =
-                dailyTargetRepository.findBySecondDepthDeptIdAndTargetDateBetween(secondDepthDeptId, from, to);
+        List<TbCsSatisfactionDailyTarget> list = dailyTargetRepository
+                .findBySecondDepthDeptIdAndTargetDateBetween(secondDepthDeptId, from, to);
         if (list.isEmpty()) {
             return null;
         }
