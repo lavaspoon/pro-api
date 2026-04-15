@@ -9,8 +9,11 @@ import devlava.youproapi.dto.CaseResponse;
 import devlava.youproapi.dto.CsSatisfactionCenterMonthDetailResponse;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsRequest;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsResponse;
+import devlava.youproapi.dto.CsSatisfactionMonthlyOverviewResponse;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTrendResponse;
 import devlava.youproapi.dto.CsSatisfactionSummaryResponse;
+import devlava.youproapi.dto.CsSatisfactionTargetsUnifiedRequest;
+import devlava.youproapi.dto.CsSatisfactionTargetsUnifiedResponse;
 import devlava.youproapi.dto.CsSatisfactionUploadResponse;
 import devlava.youproapi.dto.TeamDetailResponse;
 import devlava.youproapi.service.AdminService;
@@ -55,12 +58,12 @@ public class AdminController {
 
     /**
      * 랭킹 — TB_YOU_PRO_CASE 연도별 접수 건수 기준, 2depth 센터별 접수 합계 + 상위 N명
-     * GET /api/admin/ranking?year=2026&topN=3
+     * GET /api/admin/ranking?year=2026&topN=15
      */
     @GetMapping("/ranking")
     public ResponseEntity<AdminRankingResponse> getRanking(
             @RequestParam(required = false) Integer year,
-            @RequestParam(defaultValue = "3") int topN) {
+            @RequestParam(defaultValue = "15") int topN) {
         int y = year != null ? year : LocalDate.now().getYear();
         return ResponseEntity.ok(adminService.getRanking(y, topN));
     }
@@ -136,7 +139,19 @@ public class AdminController {
     }
 
     /**
-     * 선택 센터의 해당 연·월 만족도 요약 + 구성원별 건수 (기본: 올해 이번 달)
+     * CS 만족도 — 통합 월별(평가·만족·불만족) + 중점추진과제 월별 건수 (한 번에)
+     * GET /api/admin/cs-satisfaction/monthly-overview?year=
+     */
+    @GetMapping("/cs-satisfaction/monthly-overview")
+    public ResponseEntity<CsSatisfactionMonthlyOverviewResponse> csSatisfactionMonthlyOverview(
+            @RequestParam(required = false) Integer year) {
+        int y = year != null ? year : LocalDate.now().getYear();
+        return ResponseEntity.ok(csSatisfactionService.getMonthlyOverview(y));
+    }
+
+    /**
+     * 선택 팀(리프) 또는 센터의 만족도 요약 + 구성원별 건수.
+     * {@code month} 가 있으면 해당 월만, 없으면 해당 연도 1/1~12/31.
      * GET /api/admin/cs-satisfaction/center-month-detail?secondDepthDeptId=&year=&month=
      */
     @GetMapping("/cs-satisfaction/center-month-detail")
@@ -176,6 +191,28 @@ public class AdminController {
     public ResponseEntity<Void> csSatisfactionMonthlyTargets(
             @Valid @RequestBody CsSatisfactionMonthlyTargetsRequest req) {
         csSatisfactionService.upsertMonthlyTargets(req);
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 통합 목표 조회 (부서/스킬/연간)
+     * GET /api/admin/cs-satisfaction/targets-unified
+     */
+    @GetMapping("/cs-satisfaction/targets-unified")
+    public ResponseEntity<CsSatisfactionTargetsUnifiedResponse> csSatisfactionTargetsUnifiedGet(
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
+        return ResponseEntity.ok(csSatisfactionService.getTargetsUnified(year, month));
+    }
+
+    /**
+     * 통합 목표 저장 (부서/스킬/연간)
+     * POST /api/admin/cs-satisfaction/targets-unified
+     */
+    @PostMapping("/cs-satisfaction/targets-unified")
+    public ResponseEntity<Void> csSatisfactionTargetsUnified(
+            @Valid @RequestBody CsSatisfactionTargetsUnifiedRequest req) {
+        csSatisfactionService.upsertTargetsUnified(req);
         return ResponseEntity.ok().build();
     }
 }

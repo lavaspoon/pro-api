@@ -72,7 +72,7 @@ public class AdminService {
                 .filter(d -> scopeIds.contains(d.getDeptId()))
                 .collect(Collectors.toList());
 
-        List<TeamSummary> teams = buildLeafTeamSummaries(leafDepts);
+        List<TeamSummary> teams = buildLeafTeamSummaries(leafDepts, allDepts, cfg);
         return AdminLeafTeamsResponse.builder()
                 .secondDepthDeptId(secondDepthDeptId)
                 .teams(teams)
@@ -210,9 +210,35 @@ public class AdminService {
     /**
      * leaf 부서 목록 순서대로 팀 요약 생성 — 구성원·통계는 배치만 사용.
      */
-    private List<TeamSummary> buildLeafTeamSummaries(List<TbLmsDept> leafDepts) {
+    private List<TeamSummary> buildLeafTeamSummaries(
+            List<TbLmsDept> leafDepts,
+            List<TbLmsDept> allDepts,
+            List<Integer> secondDepthRootIds) {
         if (leafDepts.isEmpty()) {
             return List.of();
+        }
+
+        Set<Integer> rootSet = new HashSet<>(secondDepthRootIds);
+        Map<Integer, Integer> parentOf = new HashMap<>();
+        Map<Integer, TbLmsDept> deptById = new HashMap<>();
+        for (TbLmsDept d : allDepts) {
+            Integer id = d.getDeptId();
+            deptById.put(id, d);
+            parentOf.put(id, d.getParent() != null ? d.getParent().getDeptId() : null);
+        }
+
+        /*
+         * 센터: 설정된 2depth 루트별 서브트리에 leaf가 포함되는지로 판별 (부모 체인 단독보다 안정적).
+         * leaf 목록은 동일 규칙(listLeafDeptsUnderAnyRoot)으로 만들어졌으므로 항상 한 센터에 속해야 함.
+         */
+        Map<Integer, Integer> leafToCenterRootId = new HashMap<>();
+        for (Integer rootId : secondDepthRootIds) {
+            Set<Integer> subtree = AdminDeptScope.collectSubtreeDeptIds(allDepts, List.of(rootId));
+            for (TbLmsDept leaf : leafDepts) {
+                if (subtree.contains(leaf.getDeptId())) {
+                    leafToCenterRootId.putIfAbsent(leaf.getDeptId(), rootId);
+                }
+            }
         }
 
         List<Integer> leafIds = leafDepts.stream()
@@ -243,6 +269,13 @@ public class AdminService {
             Integer did = leaf.getDeptId();
             List<TbLmsMember> ms = byDept.getOrDefault(did, List.of());
             String fallbackName = leaf.getDeptName() != null ? leaf.getDeptName() : "";
+            Integer centerRootId = leafToCenterRootId.get(did);
+            String centerName = centerNameFromRootId(centerRootId, deptById);
+            if (centerName.isEmpty()) {
+                centerRootId = findConfiguredRootAncestor(did, parentOf, rootSet);
+                centerName = centerNameFromRootId(centerRootId, deptById);
+            }
+            String groupName = groupNameForLeaf(did, parentOf, rootSet, deptById, centerRootId);
             out.add(buildTeamSummary(
                     did,
                     ms,
@@ -252,9 +285,57 @@ public class AdminService {
                     selectedMonthMap,
                     pendingMap,
                     judgedMap,
-                    fallbackName));
+                    fallbackName,
+                    centerName,
+                    groupName));
         }
         return out;
+    }
+
+    private static String centerNameFromRootId(Integer centerRootId, Map<Integer, TbLmsDept> deptById) {
+        if (centerRootId == null) {
+            return "";
+        }
+        TbLmsDept d = deptById.get(centerRootId);
+        return d != null && d.getDeptName() != null ? d.getDeptName().trim() : "";
+    }
+
+    /** 부모 체인을 따라 설정된 센터(2depth) 루트 dept_id 를 찾음 — 서브트리 매칭 실패 시 보조 */
+    private static Integer findConfiguredRootAncestor(
+            int leafDeptId,
+            Map<Integer, Integer> parentOf,
+            Set<Integer> roots) {
+        Integer cur = leafDeptId;
+        for (int i = 0; i < 64 && cur != null; i++) {
+            if (roots.contains(cur)) {
+                return cur;
+            }
+            cur = parentOf.get(cur);
+        }
+        return null;
+    }
+
+    /**
+     * 그룹: leaf 직속 상위 부서명. 직속 상위가 해당 센터 루트이거나(실이 센터 바로 하위) 다른 센터 루트이면 빈 값.
+     */
+    private static String groupNameForLeaf(
+            int leafDeptId,
+            Map<Integer, Integer> parentOf,
+            Set<Integer> roots,
+            Map<Integer, TbLmsDept> deptById,
+            Integer resolvedCenterRootId) {
+        Integer parentId = parentOf.get(leafDeptId);
+        if (parentId == null) {
+            return "";
+        }
+        if (resolvedCenterRootId != null && resolvedCenterRootId.equals(parentId)) {
+            return "";
+        }
+        if (roots.contains(parentId)) {
+            return "";
+        }
+        TbLmsDept p = deptById.get(parentId);
+        return p != null && p.getDeptName() != null ? p.getDeptName().trim() : "";
     }
 
     /**
@@ -333,7 +414,9 @@ public class AdminService {
                         selectedMonthMap,
                         pendingMap,
                         judgedMap,
-                        null))
+                        null,
+                        "",
+                        ""))
                 .collect(Collectors.toList());
 
         List<AdminDashboardResponse.MonthlyTrendPoint> monthlyTrend = new ArrayList<>();
@@ -393,7 +476,9 @@ public class AdminService {
             Map<String, Long> selectedMonthMap,
             Map<String, Long> pendingMap,
             Map<String, Long> judgedMap,
-            String teamNameFallback) {
+            String teamNameFallback,
+            String centerName,
+            String groupName) {
 
         String teamName = !members.isEmpty()
                 ? members.get(0).getDeptName()
@@ -438,6 +523,8 @@ public class AdminService {
 
         return TeamSummary.builder()
                 .id(deptIdx)
+                .centerName(centerName != null ? centerName : "")
+                .groupName(groupName != null ? groupName : "")
                 .name(teamName)
                 .memberCount(members.size())
                 .totalSubmitted(teamSubmittedYear)

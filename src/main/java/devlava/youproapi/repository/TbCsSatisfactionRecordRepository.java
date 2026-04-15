@@ -19,6 +19,17 @@ public interface TbCsSatisfactionRecordRepository extends JpaRepository<TbCsSati
 
     List<TbCsSatisfactionRecord> findByEvalDateBetween(LocalDate from, LocalDate to);
 
+    List<TbCsSatisfactionRecord> findByEvalDateBetweenAndSkid(
+            LocalDate from,
+            LocalDate to,
+            String skid);
+
+    List<TbCsSatisfactionRecord> findByEvalDateBetweenAndSkidAndDissatisfactionTypeOrderByEvalDateDescIdDesc(
+            LocalDate from,
+            LocalDate to,
+            String skid,
+            Integer dissatisfactionType);
+
     /**
      * 파일에 포함된 평가일의 기존 행만 제거.
      * 파생 메서드 deleteBy…In 은 선조회 후 엔티티 단위 삭제라, 플러시 타이밍에 새로 넣은 행까지 잡히는 경우가 있어

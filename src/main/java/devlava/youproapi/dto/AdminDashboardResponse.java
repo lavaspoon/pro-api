@@ -34,6 +34,10 @@ public class AdminDashboardResponse {
     @Builder
     public static class TeamSummary {
         private Integer id;            // deptIdx
+        /** 2depth 센터(루트) 부서명 */
+        private String centerName;
+        /** leaf 직속 상위 부서명 — 상위가 센터이면 빈 문자열 */
+        private String groupName;
         private String name;           // deptName
         private int memberCount;
         /** 해당 연도 팀 소속 접수(신청) 건수 합 */

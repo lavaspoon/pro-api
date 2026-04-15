@@ -7,6 +7,9 @@ spring:
     locations: classpath:db/migration
     # 예전 버전(삭제된) 마이그레이션 파일이 DB 이력에만 남아 있어도 기동 가능
     ignore-missing-migrations: true
+    # 이미 적용된 마이그레이션 SQL을 수정하면 체크섬 불일치로 기동 실패함.
+    # 로컬에서 SQL을 고친 뒤에는 아래를 false로 두거나, flyway repair / checksum 수동 갱신 후 true 유지.
+    validate-on-migrate: false
   servlet:
     multipart:
       max-file-size: 25MB

@@ -18,6 +18,10 @@ public class CsSatisfactionSummaryResponse {
     public static class SecondDepthSatisfactionRow {
         /** 리프 팀 {@code TB_LMS_DEPT.dept_id} (필터는 상위 2depth 센터, 행 단위는 하위 팀). 기타 행만 {@code -1}. */
         private Integer secondDepthDeptId;
+        /** 상위 실(2depth 센터)명. 기타 행은 {@code —} 에 해당하는 값. */
+        private String centerName;
+        /** 리프 직상 부모가 센터가 아니면 그 부모 부서명, 없으면 {@code —}. */
+        private String groupName;
         /** 리프 팀 부서명 (또는 기타 행 문구). */
         private String secondDepthName;
         private long evalCount;

@@ -20,5 +20,6 @@ public class CsSatisfactionMonthlyTrendResponse {
         private int month;
         private long evalCount;
         private long satisfiedCount;
+        private long dissatisfiedCount;
     }
 }

@@ -8,7 +8,7 @@
 
 -- 0) 이전 mock 제거(같은 스크립트를 여러 번 돌려도 대략 깨끗하게)
 DELETE FROM tb_cs_satisfaction_record WHERE good_ment = 'MOCK_TEST_CS_SAT';
-DELETE FROM tb_cs_satisfaction_daily_target WHERE target_percent IN (90.00, 88.00)
+DELETE FROM tb_cs_satisfaction_dept_monthly_target WHERE target_percent IN (90.00, 88.00)
   AND target_date >= date_trunc('year', CURRENT_DATE)::date
   AND target_date < (date_trunc('year', CURRENT_DATE) + interval '1 year')::date;
 
@@ -22,7 +22,7 @@ FROM (VALUES
 WHERE NOT EXISTS (SELECT 1 FROM tb_cs_dissatisfaction_type t WHERE t.type_code = v.code);
 
 -- 2) 올해 월간 목표(%) — target_date 는 매월 1일. second_depth_dept_id 는 yml second-depth-dept-ids 와 맞출 것 (예: 5, 6)
-INSERT INTO tb_cs_satisfaction_daily_target (target_date, second_depth_dept_id, target_percent)
+INSERT INTO tb_cs_satisfaction_dept_monthly_target (target_date, second_depth_dept_id, target_percent)
 SELECT d::date, 5, 90.00
 FROM generate_series(
   date_trunc('year', CURRENT_DATE)::date,
@@ -30,7 +30,7 @@ FROM generate_series(
   interval '1 month'
 ) AS g(d);
 
-INSERT INTO tb_cs_satisfaction_daily_target (target_date, second_depth_dept_id, target_percent)
+INSERT INTO tb_cs_satisfaction_dept_monthly_target (target_date, second_depth_dept_id, target_percent)
 SELECT d::date, 6, 88.00
 FROM generate_series(
   date_trunc('year', CURRENT_DATE)::date,
@@ -40,16 +40,15 @@ FROM generate_series(
 
 -- 3) 만족도 원장 — 스코프 내 구성원 최대 6명 × 5건(올해 임의 일)
 INSERT INTO tb_cs_satisfaction_record (
-  eval_date, skid, satisfied_yn, score,
-  dissatisfaction_type_id, five_major_cities_yn, gen_5060_yn, problem_resolved_yn,
+  eval_date, skid, satisfied_yn,
+  dissatisfaction_type, five_major_cities_yn, gen_5060_yn, problem_resolved_yn,
   good_ment, bad_ment
 )
 SELECT
   (date_trunc('year', CURRENT_DATE) + ((10 + floor(random() * 340))::int || ' days')::interval)::date,
   m.skid,
   CASE WHEN random() < 0.82 THEN 'Y' ELSE 'N' END,
-  round((3 + random() * 2)::numeric, 1),
-  (SELECT type_id FROM tb_cs_dissatisfaction_type WHERE type_code = 'MOCK_WAIT' LIMIT 1),
+  CASE WHEN random() < 0.2 THEN 1 + floor(random() * 5)::int ELSE NULL END,
   'N',
   'N',
   'Y',
@@ -66,4 +65,4 @@ CROSS JOIN generate_series(1, 5) AS s(n);
 
 -- 확인
 -- SELECT COUNT(*) FROM tb_cs_satisfaction_record WHERE good_ment = 'MOCK_TEST_CS_SAT';
--- SELECT * FROM tb_cs_satisfaction_daily_target ORDER BY target_date, second_depth_dept_id;
+-- SELECT * FROM tb_cs_satisfaction_dept_monthly_target ORDER BY target_date, second_depth_dept_id;

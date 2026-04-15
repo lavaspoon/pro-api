@@ -2,8 +2,11 @@ package devlava.youproapi.controller;
 
 import devlava.youproapi.dto.CaseResponse;
 import devlava.youproapi.dto.CaseSubmitRequest;
+import devlava.youproapi.dto.MemberCsFocusTasksResponse;
+import devlava.youproapi.dto.MemberCsUnsatisfiedDetailsResponse;
 import devlava.youproapi.dto.MemberHomeResponse;
 import devlava.youproapi.service.CaseService;
+import devlava.youproapi.service.CsSatisfactionService;
 import devlava.youproapi.service.MemberService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +22,7 @@ public class MemberController {
 
     private final MemberService memberService;
     private final CaseService   caseService;
+    private final CsSatisfactionService csSatisfactionService;
 
     /**
      * 구성원 홈 화면 데이터
@@ -54,5 +58,31 @@ public class MemberController {
     @PostMapping("/cases")
     public ResponseEntity<CaseResponse> submitCase(@Valid @RequestBody CaseSubmitRequest req) {
         return ResponseEntity.ok(caseService.submitCase(req));
+    }
+
+    /**
+     * 구성원 CS 만족도 — 당월 중점추진과제(5대도시·5060·문제해결) Y 건수
+     * GET /api/member/satisfaction/focus-tasks?skid=&year=&month=
+     */
+    @GetMapping("/satisfaction/focus-tasks")
+    public ResponseEntity<MemberCsFocusTasksResponse> getMemberFocusTasks(
+            @RequestParam String skid,
+            @RequestParam int year,
+            @RequestParam int month) {
+        return ResponseEntity.ok(csSatisfactionService.getMemberFocusTaskCounts(skid, year, month));
+    }
+
+    /**
+     * 구성원 당월 불만족 유형(1~5)별 상담 상세
+     * GET /api/member/satisfaction/unsatisfied-details?skid=&year=&month=&dissatisfactionType=
+     */
+    @GetMapping("/satisfaction/unsatisfied-details")
+    public ResponseEntity<MemberCsUnsatisfiedDetailsResponse> getMemberUnsatisfiedDetails(
+            @RequestParam String skid,
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam int dissatisfactionType) {
+        return ResponseEntity.ok(
+                csSatisfactionService.getMemberUnsatisfiedDetails(skid, year, month, dissatisfactionType));
     }
 }
