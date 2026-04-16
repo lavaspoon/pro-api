@@ -64,7 +64,8 @@ public class MemberService {
     }
 
     /**
-     * 팀 순위 — {@code application.yml} 의 {@code youpro.admin.second-depth-dept-ids}(및 leaf 설정)에 해당하는
+     * 팀 순위 — {@code application.yml} 의 {@code youpro.admin.second-depth-dept-ids}(및
+     * leaf 설정)에 해당하는
      * 리프 팀들만 대상으로, 해당 연도 팀 단위 선정 건수 합 기준 순위.
      */
     private EvalCenterRank computeEvalCenterTeamRank(TbLmsMember member, int year) {
