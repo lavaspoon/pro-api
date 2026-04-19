@@ -44,6 +44,7 @@ public class MemberService {
         double teamAvgSelected = calcTeamAvg(member.getDeptIdx(), year);
 
         EvalCenterRank evalRank = computeEvalCenterTeamRank(member, year);
+        IndividualRank indRank = computeIndividualRank(skid, year);
 
         return MemberHomeResponse.builder()
                 .team(MemberHomeResponse.TeamInfo.builder()
@@ -60,6 +61,8 @@ public class MemberService {
                 .evalCenterTeamRank(evalRank.rank)
                 .evalCenterTeamTotal(evalRank.totalTeams)
                 .evalCenterTeamSelectedYear(evalRank.teamSelectedYear)
+                .myIndividualRank(indRank.rank)
+                .individualRankTotal(indRank.total)
                 .build();
     }
 
@@ -113,6 +116,40 @@ public class MemberService {
         }
 
         return new EvalCenterRank(true, null, totalTeams, myTeamTotal);
+    }
+
+    /** youYn='Y' 평가대상자 전원 대상 개인 선정 건수 기준 순위 계산 */
+    private IndividualRank computeIndividualRank(String skid, int year) {
+        List<TbLmsMember> targets = memberRepository.findByUseYn("Y").stream()
+                .filter(m -> "Y".equals(m.getYouYn()))
+                .collect(Collectors.toList());
+
+        if (targets.isEmpty()) return new IndividualRank(null, 0);
+
+        List<String> skids = targets.stream().map(TbLmsMember::getSkid).collect(Collectors.toList());
+        Map<String, Long> selectedBySkid = caseService.mapSelectedBySkidForYear(skids, year);
+
+        List<Long> sorted = selectedBySkid.values().stream()
+                .sorted(Comparator.reverseOrder())
+                .collect(Collectors.toList());
+
+        long myCount = selectedBySkid.getOrDefault(skid, 0L);
+        int rank = 1;
+        for (int i = 0; i < sorted.size(); i++) {
+            if (i > 0 && sorted.get(i) < sorted.get(i - 1)) rank = i + 1;
+            if (sorted.get(i) == myCount) return new IndividualRank(rank, targets.size());
+        }
+        return new IndividualRank(targets.size(), targets.size());
+    }
+
+    private static final class IndividualRank {
+        final Integer rank;
+        final int total;
+
+        IndividualRank(Integer rank, int total) {
+            this.rank = rank;
+            this.total = total;
+        }
     }
 
     private static final class EvalCenterRank {

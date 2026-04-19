@@ -24,6 +24,8 @@ public class CsSatisfactionSummaryResponse {
         private String groupName;
         /** 리프 팀 부서명 (또는 기타 행 문구). */
         private String secondDepthName;
+        /** 해당 리프 팀 서브트리 소속 · {@code you_yn = Y} 인 구성원 수 */
+        private int evalTargetMemberCount;
         private long evalCount;
         private long satisfiedCount;
         private long dissatisfiedCount;

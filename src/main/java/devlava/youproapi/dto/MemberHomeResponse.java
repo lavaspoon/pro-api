@@ -43,6 +43,12 @@ public class MemberHomeResponse {
     /** 우리 팀 연간 누적 선정 합 (팀 단위) */
     private Long evalCenterTeamSelectedYear;
 
+    /** youYn='Y' 평가대상자 전체 중 개인 선정 건수 기준 순위 (1부터). */
+    private Integer myIndividualRank;
+
+    /** 순위 산정 대상 평가대상자 총 인원 */
+    private Integer individualRankTotal;
+
     @Getter
     @Builder
     public static class TeamInfo {

@@ -9,8 +9,10 @@ import devlava.youproapi.dto.CaseResponse;
 import devlava.youproapi.dto.CsSatisfactionCenterMonthDetailResponse;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsRequest;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsResponse;
+import devlava.youproapi.dto.CsSatisfactionAdminDashboardKpiResponse;
 import devlava.youproapi.dto.CsSatisfactionMonthlyOverviewResponse;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTrendResponse;
+import devlava.youproapi.dto.CsSatisfactionRankingResponse;
 import devlava.youproapi.dto.CsSatisfactionSummaryResponse;
 import devlava.youproapi.dto.CsSatisfactionTargetsUnifiedRequest;
 import devlava.youproapi.dto.CsSatisfactionTargetsUnifiedResponse;
@@ -147,6 +149,28 @@ public class AdminController {
             @RequestParam(required = false) Integer year) {
         int y = year != null ? year : LocalDate.now().getYear();
         return ResponseEntity.ok(csSatisfactionService.getMonthlyOverview(y));
+    }
+
+    /**
+     * CS 만족도 — 관리자 상단 KPI(센터 연간 달성·스킬 평균 달성·중점 3종 당월)
+     * GET /api/admin/cs-satisfaction/dashboard-kpis?year=
+     */
+    @GetMapping("/cs-satisfaction/dashboard-kpis")
+    public ResponseEntity<CsSatisfactionAdminDashboardKpiResponse> csSatisfactionDashboardKpis(
+            @RequestParam(required = false) Integer year) {
+        return ResponseEntity.ok(csSatisfactionService.getAdminDashboardKpis(year));
+    }
+
+    /**
+     * CS 만족도 — 연간 구성원 랭킹(만족·5대도시·5060·문제해결 각 상위 N명)
+     * GET /api/admin/cs-satisfaction/ranking?year=&topN=3
+     */
+    @GetMapping("/cs-satisfaction/ranking")
+    public ResponseEntity<CsSatisfactionRankingResponse> csSatisfactionRanking(
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false, defaultValue = "3") int topN) {
+        int y = year != null ? year : LocalDate.now().getYear();
+        return ResponseEntity.ok(csSatisfactionService.getRanking(y, topN));
     }
 
     /**

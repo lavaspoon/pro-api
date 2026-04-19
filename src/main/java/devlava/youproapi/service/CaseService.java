@@ -24,6 +24,45 @@ public class CaseService {
 
     private static final int MONTHLY_LIMIT = 3;
 
+    /** 통계 JPQL에서 call_date 연·월 비교용 */
+    private static String yearStr(int year) {
+        return String.valueOf(year);
+    }
+
+    private static String monthStr(int month) {
+        return String.format("%02d", month);
+    }
+
+    private static int parseMonthKey(Object raw) {
+        if (raw == null) {
+            return -1;
+        }
+        if (raw instanceof Number) {
+            return ((Number) raw).intValue();
+        }
+        return Integer.parseInt(String.valueOf(raw).trim(), 10);
+    }
+
+    /**
+     * 통화일시 문자열({@code yyyy-MM-dd ...})에서 연·월 추출. 형식 불가 시 현재 달력 연·월.
+     */
+    private static int[] yearMonthFromCallDateOrNow(String callDate) {
+        LocalDateTime now = LocalDateTime.now();
+        if (callDate == null || callDate.length() < 7) {
+            return new int[]{now.getYear(), now.getMonthValue()};
+        }
+        try {
+            int y = Integer.parseInt(callDate.substring(0, 4));
+            int m = Integer.parseInt(callDate.substring(5, 7));
+            if (m >= 1 && m <= 12) {
+                return new int[]{y, m};
+            }
+        } catch (NumberFormatException ignored) {
+            // fall through
+        }
+        return new int[]{now.getYear(), now.getMonthValue()};
+    }
+
     private final TbYouProCaseRepository caseRepository;
     private final TbLmsMemberRepository memberRepository;
     private final SttService sttService;
@@ -110,9 +149,9 @@ public class CaseService {
         TbLmsMember member = findMember(c.getSkid());
 
         if ("selected".equals(req.getDecision())) {
-            LocalDateTime now = LocalDateTime.now();
+            int[] ym = yearMonthFromCallDateOrNow(c.getCallDate());
             long monthlyCount = caseRepository.countSelectedBySkidAndYearMonth(
-                    c.getSkid(), now.getYear(), now.getMonthValue());
+                    c.getSkid(), yearStr(ym[0]), monthStr(ym[1]));
             if (monthlyCount >= MONTHLY_LIMIT) {
                 throw new IllegalStateException(
                         "해당 구성원은 이번 달 선정 한도(" + MONTHLY_LIMIT + "회)에 도달했습니다.");
@@ -129,11 +168,11 @@ public class CaseService {
     // ─── 통계 헬퍼 ─────────────────────────────────────────────────────────
 
     public long countSelectedBySkidAndYear(String skid, int year) {
-        return caseRepository.countSelectedBySkidAndYear(skid, year);
+        return caseRepository.countSelectedBySkidAndYear(skid, yearStr(year));
     }
 
     public long countSelectedBySkidAndYearMonth(String skid, int year, int month) {
-        return caseRepository.countSelectedBySkidAndYearMonth(skid, year, month);
+        return caseRepository.countSelectedBySkidAndYearMonth(skid, yearStr(year), monthStr(month));
     }
 
     public long countPendingBySkid(String skid) {
@@ -145,26 +184,26 @@ public class CaseService {
         if (skids == null || skids.isEmpty()) {
             return 0L;
         }
-        return caseRepository.countJudgedBySkidsInYear(skids, year);
+        return caseRepository.countJudgedBySkidsInYear(skids, yearStr(year));
     }
 
     public long countSelectedByYear(int year) {
-        return caseRepository.countSelectedByYear(year);
+        return caseRepository.countSelectedByYear(yearStr(year));
     }
 
     /** 연도별 전체 신청(접수) 건수 */
     public long countSubmittedByYear(int year) {
-        return caseRepository.countSubmittedByYear(year);
+        return caseRepository.countSubmittedByYear(yearStr(year));
     }
 
     /** 전 센터 월별 신청 건수 */
     public long countSubmittedByYearMonth(int year, int month) {
-        return caseRepository.countSubmittedByYearMonth(year, month);
+        return caseRepository.countSubmittedByYearMonth(yearStr(year), monthStr(month));
     }
 
     /** 전 센터 월별 선정 건수 */
     public long countSelectedByYearMonth(int year, int month) {
-        return caseRepository.countSelectedByYearMonth(year, month);
+        return caseRepository.countSelectedByYearMonth(yearStr(year), monthStr(month));
     }
 
     // ─── 관리자 스코프 배치 통계 (N+1 방지) ─────────────────────────────────
@@ -173,7 +212,7 @@ public class CaseService {
         if (skids == null || skids.isEmpty()) {
             return 0L;
         }
-        return caseRepository.countSubmittedBySkidsAndYear(skids, year);
+        return caseRepository.countSubmittedBySkidsAndYear(skids, yearStr(year));
     }
 
     /** 팀(구성원 집합) 기준 해당 연·월 접수 건수 */
@@ -181,14 +220,14 @@ public class CaseService {
         if (skids == null || skids.isEmpty()) {
             return 0L;
         }
-        return caseRepository.countSubmittedBySkidsAndYearMonth(skids, year, month);
+        return caseRepository.countSubmittedBySkidsAndYearMonth(skids, yearStr(year), monthStr(month));
     }
 
     public long countSelectedBySkidsAndYear(Collection<String> skids, int year) {
         if (skids == null || skids.isEmpty()) {
             return 0L;
         }
-        return caseRepository.countSelectedBySkidsAndYear(skids, year);
+        return caseRepository.countSelectedBySkidsAndYear(skids, yearStr(year));
     }
 
     /** 월(1~12) → 해당 월 접수 건수 */
@@ -196,7 +235,7 @@ public class CaseService {
         if (skids == null || skids.isEmpty()) {
             return Map.of();
         }
-        return rowsToMonthMap(caseRepository.countSubmittedBySkidsGroupByMonth(skids, year));
+        return rowsToMonthMap(caseRepository.countSubmittedBySkidsGroupByMonth(skids, yearStr(year)));
     }
 
     /** 월(1~12) → 해당 월 선정 건수 */
@@ -204,7 +243,7 @@ public class CaseService {
         if (skids == null || skids.isEmpty()) {
             return Map.of();
         }
-        return rowsToMonthMap(caseRepository.countSelectedBySkidsGroupByMonth(skids, year));
+        return rowsToMonthMap(caseRepository.countSelectedBySkidsGroupByMonth(skids, yearStr(year)));
     }
 
     /** 구성원별 해당 연도 접수(신청) 건수 */
@@ -212,7 +251,7 @@ public class CaseService {
         if (skids == null || skids.isEmpty()) {
             return Map.of();
         }
-        return rowsToSkidMap(caseRepository.countSubmittedBySkidsAndYearGroupBySkid(skids, year));
+        return rowsToSkidMap(caseRepository.countSubmittedBySkidsAndYearGroupBySkid(skids, yearStr(year)));
     }
 
     /** 구성원별 해당 연·월 접수(신청) 건수 */
@@ -220,21 +259,23 @@ public class CaseService {
         if (skids == null || skids.isEmpty()) {
             return Map.of();
         }
-        return rowsToSkidMap(caseRepository.countSubmittedBySkidsAndYearMonthGroupBySkid(skids, year, month));
+        return rowsToSkidMap(
+                caseRepository.countSubmittedBySkidsAndYearMonthGroupBySkid(skids, yearStr(year), monthStr(month)));
     }
 
     public Map<String, Long> mapSelectedBySkidForYear(Collection<String> skids, int year) {
         if (skids == null || skids.isEmpty()) {
             return Map.of();
         }
-        return rowsToSkidMap(caseRepository.countSelectedBySkidsAndYearGroupBySkid(skids, year));
+        return rowsToSkidMap(caseRepository.countSelectedBySkidsAndYearGroupBySkid(skids, yearStr(year)));
     }
 
     public Map<String, Long> mapSelectedBySkidForYearMonth(Collection<String> skids, int year, int month) {
         if (skids == null || skids.isEmpty()) {
             return Map.of();
         }
-        return rowsToSkidMap(caseRepository.countSelectedBySkidsAndYearMonthGroupBySkid(skids, year, month));
+        return rowsToSkidMap(
+                caseRepository.countSelectedBySkidsAndYearMonthGroupBySkid(skids, yearStr(year), monthStr(month)));
     }
 
     public Map<String, Long> mapPendingBySkid(Collection<String> skids) {
@@ -248,7 +289,15 @@ public class CaseService {
         if (skids == null || skids.isEmpty()) {
             return Map.of();
         }
-        return rowsToSkidMap(caseRepository.countJudgedBySkidsAndYearGroupBySkid(skids, year));
+        return rowsToSkidMap(caseRepository.countJudgedBySkidsAndYearGroupBySkid(skids, yearStr(year)));
+    }
+
+    /** 스코프 구성원 기준, 해당 연·월(call_date) 판정 완료(선정·비선정) 건수 */
+    public long countJudgedBySkidsAndYearMonth(Collection<String> skids, int year, int month) {
+        if (skids == null || skids.isEmpty()) {
+            return 0L;
+        }
+        return caseRepository.countJudgedBySkidsAndYearMonth(skids, yearStr(year), monthStr(month));
     }
 
     /**
@@ -268,7 +317,7 @@ public class CaseService {
                     .build();
         }
 
-        List<Object[]> monthly = caseRepository.aggregateMonthlySubmittedAndSelectedBySkidsAndYear(skids, year);
+        List<Object[]> monthly = caseRepository.aggregateMonthlySubmittedAndSelectedBySkidsAndYear(skids, yearStr(year));
         Map<Integer, Long> submittedByMonth = new HashMap<>();
         Map<Integer, Long> selectedByMonth = new HashMap<>();
         long totalSubmitted = 0L;
@@ -277,7 +326,10 @@ public class CaseService {
             if (row[0] == null) {
                 continue;
             }
-            int m = ((Number) row[0]).intValue();
+            int m = parseMonthKey(row[0]);
+            if (m < 1 || m > 12) {
+                continue;
+            }
             long sub = ((Number) row[1]).longValue();
             long sel = ((Number) row[2]).longValue();
             submittedByMonth.put(m, sub);
@@ -286,7 +338,7 @@ public class CaseService {
             totalSelected += sel;
         }
 
-        List<Object[]> perSkid = caseRepository.aggregatePerSkidDashboardMetrics(skids, year, month);
+        List<Object[]> perSkid = caseRepository.aggregatePerSkidDashboardMetrics(skids, yearStr(year), monthStr(month));
         Map<String, Long> selYear = new HashMap<>();
         Map<String, Long> selMonth = new HashMap<>();
         Map<String, Long> pending = new HashMap<>();
@@ -321,7 +373,10 @@ public class CaseService {
             if (row[0] == null) {
                 continue;
             }
-            m.put(((Number) row[0]).intValue(), ((Number) row[1]).longValue());
+            int month = parseMonthKey(row[0]);
+            if (month >= 1 && month <= 12) {
+                m.put(month, ((Number) row[1]).longValue());
+            }
         }
         return m;
     }

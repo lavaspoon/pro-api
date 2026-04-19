@@ -22,59 +22,71 @@ public interface TbYouProCaseRepository extends JpaRepository<TbYouProCase, Long
     /** 특정 구성원 집합의 검토 대기 사례 */
     List<TbYouProCase> findByStatusAndSkidInOrderBySubmittedAtAsc(String status, Collection<String> skids);
 
-    /** 연도별 접수(신청) 건수 — 상태 무관, 해당 연도 제출분 */
+    /**
+     * 통화일시({@code call_date}) 문자열 앞 10자 이상 — {@code yyyy-MM-dd ...} 형식 가정.
+     * 월은 {@code :monthStr} 두 자리({@code 01}–{@code 12})와 비교.
+     */
+    // ─── 연도·월은 call_date 기준 (접수 시각 submitted_at 아님) ───────────────
+
+    /** 연도별 접수(신청) 건수 — 상태 무관, call_date 연도가 일치 */
     @Query("""
            SELECT COUNT(c) FROM TbYouProCase c
-           WHERE FUNCTION('YEAR', c.submittedAt) = :year
+           WHERE c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
            """)
-    long countSubmittedByYear(@Param("year") int year);
+    long countSubmittedByYear(@Param("yearStr") String yearStr);
 
-    /** 연도별 선정 건수 (전체) */
-    @Query("""
-           SELECT COUNT(c) FROM TbYouProCase c
-           WHERE c.status = 'selected'
-             AND FUNCTION('YEAR', c.submittedAt) = :year
-           """)
-    long countSelectedByYear(@Param("year") int year);
-
-    /** 전 센터 월별 신청(접수) 건수 */
-    @Query("""
-           SELECT COUNT(c) FROM TbYouProCase c
-           WHERE FUNCTION('YEAR', c.submittedAt) = :year
-             AND FUNCTION('MONTH', c.submittedAt) = :month
-           """)
-    long countSubmittedByYearMonth(@Param("year") int year, @Param("month") int month);
-
-    /** 전 센터 월별 선정 건수 */
+    /** 연도별 선정 건수 (전체) — status = selected, call_date 연도 */
     @Query("""
            SELECT COUNT(c) FROM TbYouProCase c
            WHERE c.status = 'selected'
-             AND FUNCTION('YEAR', c.submittedAt) = :year
-             AND FUNCTION('MONTH', c.submittedAt) = :month
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
            """)
-    long countSelectedByYearMonth(@Param("year") int year, @Param("month") int month);
+    long countSelectedByYear(@Param("yearStr") String yearStr);
 
-    /** 구성원별 연간 선정 건수 */
+    /** 전 센터 월별 신청(접수) 건수 — call_date 연·월 */
+    @Query("""
+           SELECT COUNT(c) FROM TbYouProCase c
+           WHERE c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
+             AND SUBSTRING(c.callDate, 6, 2) = :monthStr
+           """)
+    long countSubmittedByYearMonth(@Param("yearStr") String yearStr, @Param("monthStr") String monthStr);
+
+    /** 전 센터 월별 선정 건수 — call_date 연·월, status = selected */
+    @Query("""
+           SELECT COUNT(c) FROM TbYouProCase c
+           WHERE c.status = 'selected'
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
+             AND SUBSTRING(c.callDate, 6, 2) = :monthStr
+           """)
+    long countSelectedByYearMonth(@Param("yearStr") String yearStr, @Param("monthStr") String monthStr);
+
+    /** 구성원별 연간 선정 건수 — call_date 연도 */
     @Query("""
            SELECT COUNT(c) FROM TbYouProCase c
            WHERE c.skid = :skid
              AND c.status = 'selected'
-             AND FUNCTION('YEAR', c.submittedAt) = :year
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
            """)
-    long countSelectedBySkidAndYear(@Param("skid") String skid, @Param("year") int year);
+    long countSelectedBySkidAndYear(@Param("skid") String skid, @Param("yearStr") String yearStr);
 
-    /** 구성원 월간 선정 건수 */
+    /** 구성원 월간 선정 건수 — call_date 연·월 (월간 선정 한도 등과 동일 기준) */
     @Query("""
            SELECT COUNT(c) FROM TbYouProCase c
            WHERE c.skid = :skid
              AND c.status = 'selected'
-             AND FUNCTION('YEAR', c.submittedAt) = :year
-             AND FUNCTION('MONTH', c.submittedAt) = :month
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
+             AND SUBSTRING(c.callDate, 6, 2) = :monthStr
            """)
     long countSelectedBySkidAndYearMonth(
             @Param("skid") String skid,
-            @Param("year") int year,
-            @Param("month") int month);
+            @Param("yearStr") String yearStr,
+            @Param("monthStr") String monthStr);
 
     /** 구성원 월간 검토 대기 건수 */
     long countBySkidAndStatus(String skid, String status);
@@ -87,104 +99,130 @@ public interface TbYouProCaseRepository extends JpaRepository<TbYouProCase, Long
            """)
     List<TbYouProCase> findBySkidIn(@Param("skids") List<String> skids);
 
-    /** 소속 구성원 기준, 해당 연도 판정 완료(선정+비선정) 건수 */
+    /** 소속 구성원 기준, 해당 연도 판정 완료(선정+비선정) 건수 — call_date 연도 */
     @Query("""
            SELECT COUNT(c) FROM TbYouProCase c
            WHERE c.skid IN :skids
              AND c.status IN ('selected', 'rejected')
-             AND FUNCTION('YEAR', c.submittedAt) = :year
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
            """)
-    long countJudgedBySkidsInYear(@Param("skids") List<String> skids, @Param("year") int year);
+    long countJudgedBySkidsInYear(@Param("skids") List<String> skids, @Param("yearStr") String yearStr);
+
+    /** 소속 구성원 기준, 해당 연·월(call_date) 판정 완료(선정·비선정) 건수 */
+    @Query("""
+           SELECT COUNT(c) FROM TbYouProCase c
+           WHERE c.skid IN :skids
+             AND c.status IN ('selected', 'rejected')
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
+             AND SUBSTRING(c.callDate, 6, 2) = :monthStr
+           """)
+    long countJudgedBySkidsAndYearMonth(
+            @Param("skids") Collection<String> skids,
+            @Param("yearStr") String yearStr,
+            @Param("monthStr") String monthStr);
 
     // ─── 관리자 스코프(구성원 IN) 배치 통계 — N+1 방지 ───────────────────────
 
     @Query("""
            SELECT COUNT(c) FROM TbYouProCase c
            WHERE c.skid IN :skids
-             AND FUNCTION('YEAR', c.submittedAt) = :year
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
            """)
-    long countSubmittedBySkidsAndYear(@Param("skids") Collection<String> skids, @Param("year") int year);
+    long countSubmittedBySkidsAndYear(@Param("skids") Collection<String> skids, @Param("yearStr") String yearStr);
 
-    /** 소속 구성원 기준, 해당 연·월 접수 건수(상태 무관) */
+    /** 소속 구성원 기준, 해당 연·월 접수 건수(상태 무관) — call_date 연·월 */
     @Query("""
            SELECT COUNT(c) FROM TbYouProCase c
            WHERE c.skid IN :skids
-             AND FUNCTION('YEAR', c.submittedAt) = :year
-             AND FUNCTION('MONTH', c.submittedAt) = :month
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
+             AND SUBSTRING(c.callDate, 6, 2) = :monthStr
            """)
     long countSubmittedBySkidsAndYearMonth(
             @Param("skids") Collection<String> skids,
-            @Param("year") int year,
-            @Param("month") int month);
+            @Param("yearStr") String yearStr,
+            @Param("monthStr") String monthStr);
 
     @Query("""
            SELECT COUNT(c) FROM TbYouProCase c
            WHERE c.skid IN :skids
              AND c.status = 'selected'
-             AND FUNCTION('YEAR', c.submittedAt) = :year
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
            """)
-    long countSelectedBySkidsAndYear(@Param("skids") Collection<String> skids, @Param("year") int year);
+    long countSelectedBySkidsAndYear(@Param("skids") Collection<String> skids, @Param("yearStr") String yearStr);
 
     @Query("""
-           SELECT FUNCTION('MONTH', c.submittedAt), COUNT(c) FROM TbYouProCase c
+           SELECT SUBSTRING(c.callDate, 6, 2), COUNT(c) FROM TbYouProCase c
            WHERE c.skid IN :skids
-             AND FUNCTION('YEAR', c.submittedAt) = :year
-           GROUP BY FUNCTION('MONTH', c.submittedAt)
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
+           GROUP BY SUBSTRING(c.callDate, 6, 2)
+           ORDER BY SUBSTRING(c.callDate, 6, 2)
            """)
-    List<Object[]> countSubmittedBySkidsGroupByMonth(@Param("skids") Collection<String> skids, @Param("year") int year);
+    List<Object[]> countSubmittedBySkidsGroupByMonth(@Param("skids") Collection<String> skids, @Param("yearStr") String yearStr);
 
     @Query("""
-           SELECT FUNCTION('MONTH', c.submittedAt), COUNT(c) FROM TbYouProCase c
+           SELECT SUBSTRING(c.callDate, 6, 2), COUNT(c) FROM TbYouProCase c
            WHERE c.skid IN :skids
              AND c.status = 'selected'
-             AND FUNCTION('YEAR', c.submittedAt) = :year
-           GROUP BY FUNCTION('MONTH', c.submittedAt)
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
+           GROUP BY SUBSTRING(c.callDate, 6, 2)
+           ORDER BY SUBSTRING(c.callDate, 6, 2)
            """)
-    List<Object[]> countSelectedBySkidsGroupByMonth(@Param("skids") Collection<String> skids, @Param("year") int year);
+    List<Object[]> countSelectedBySkidsGroupByMonth(@Param("skids") Collection<String> skids, @Param("yearStr") String yearStr);
 
     @Query("""
            SELECT c.skid, COUNT(c) FROM TbYouProCase c
            WHERE c.skid IN :skids
-             AND FUNCTION('YEAR', c.submittedAt) = :year
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
            GROUP BY c.skid
            """)
     List<Object[]> countSubmittedBySkidsAndYearGroupBySkid(
             @Param("skids") Collection<String> skids,
-            @Param("year") int year);
+            @Param("yearStr") String yearStr);
 
     @Query("""
            SELECT c.skid, COUNT(c) FROM TbYouProCase c
            WHERE c.skid IN :skids
-             AND FUNCTION('YEAR', c.submittedAt) = :year
-             AND FUNCTION('MONTH', c.submittedAt) = :month
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
+             AND SUBSTRING(c.callDate, 6, 2) = :monthStr
            GROUP BY c.skid
            """)
     List<Object[]> countSubmittedBySkidsAndYearMonthGroupBySkid(
             @Param("skids") Collection<String> skids,
-            @Param("year") int year,
-            @Param("month") int month);
+            @Param("yearStr") String yearStr,
+            @Param("monthStr") String monthStr);
 
     @Query("""
            SELECT c.skid, COUNT(c) FROM TbYouProCase c
            WHERE c.skid IN :skids
              AND c.status = 'selected'
-             AND FUNCTION('YEAR', c.submittedAt) = :year
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
            GROUP BY c.skid
            """)
-    List<Object[]> countSelectedBySkidsAndYearGroupBySkid(@Param("skids") Collection<String> skids, @Param("year") int year);
+    List<Object[]> countSelectedBySkidsAndYearGroupBySkid(@Param("skids") Collection<String> skids, @Param("yearStr") String yearStr);
 
     @Query("""
            SELECT c.skid, COUNT(c) FROM TbYouProCase c
            WHERE c.skid IN :skids
              AND c.status = 'selected'
-             AND FUNCTION('YEAR', c.submittedAt) = :year
-             AND FUNCTION('MONTH', c.submittedAt) = :month
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
+             AND SUBSTRING(c.callDate, 6, 2) = :monthStr
            GROUP BY c.skid
            """)
     List<Object[]> countSelectedBySkidsAndYearMonthGroupBySkid(
             @Param("skids") Collection<String> skids,
-            @Param("year") int year,
-            @Param("month") int month);
+            @Param("yearStr") String yearStr,
+            @Param("monthStr") String monthStr);
 
     @Query("""
            SELECT c.skid, COUNT(c) FROM TbYouProCase c
@@ -198,47 +236,55 @@ public interface TbYouProCaseRepository extends JpaRepository<TbYouProCase, Long
            SELECT c.skid, COUNT(c) FROM TbYouProCase c
            WHERE c.skid IN :skids
              AND c.status IN ('selected', 'rejected')
-             AND FUNCTION('YEAR', c.submittedAt) = :year
+             AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+             AND SUBSTRING(c.callDate, 1, 4) = :yearStr
            GROUP BY c.skid
            """)
-    List<Object[]> countJudgedBySkidsAndYearGroupBySkid(@Param("skids") Collection<String> skids, @Param("year") int year);
+    List<Object[]> countJudgedBySkidsAndYearGroupBySkid(@Param("skids") Collection<String> skids, @Param("yearStr") String yearStr);
 
-    // ─── 관리자 대시보드 통계 배치 (스코프 skids) — JPQL 로 PostgreSQL·MS SQL 공통 ─
+    // ─── 관리자 대시보드 통계 배치 (스코프 skids) ─────────────────────────────
 
     /**
      * 연도·스코프 기준 월별 접수(전체) / 선정 건수를 한 번에 집계.
-     * (기존 countSubmittedBySkidsGroupByMonth + countSelectedBySkidsGroupByMonth 2회 → 1회)
+     * 월 키는 call_date의 MM 문자열(01–12) — 서비스에서 1–12 정수로 변환.
      */
     @Query("""
-            SELECT month(c.submittedAt), count(c),
-                   sum(case when c.status = 'selected' then 1 else 0 end)
+            SELECT SUBSTRING(c.callDate, 6, 2), COUNT(c),
+                   SUM(CASE WHEN c.status = 'selected' THEN 1 ELSE 0 END)
             FROM TbYouProCase c
             WHERE c.skid IN :skids
-              AND year(c.submittedAt) = :year
-            GROUP BY month(c.submittedAt)
-            ORDER BY month(c.submittedAt)
+              AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+              AND SUBSTRING(c.callDate, 1, 4) = :yearStr
+            GROUP BY SUBSTRING(c.callDate, 6, 2)
+            ORDER BY SUBSTRING(c.callDate, 6, 2)
             """)
     List<Object[]> aggregateMonthlySubmittedAndSelectedBySkidsAndYear(
             @Param("skids") Collection<String> skids,
-            @Param("year") int year);
+            @Param("yearStr") String yearStr);
 
     /**
      * 스코프 구성원별 선정(연/월)·대기·연도판정 건수를 한 번에 집계.
-     * (기존 skid별 GROUP BY 쿼리 4회 → 1회)
+     * 선정·연도 판정 건수는 call_date 기준.
      */
     @Query("""
             SELECT c.skid,
-                   sum(case when c.status = 'selected' and year(c.submittedAt) = :year then 1 else 0 end),
-                   sum(case when c.status = 'selected' and year(c.submittedAt) = :year
-                            and month(c.submittedAt) = :month then 1 else 0 end),
-                   sum(case when c.status = 'pending' then 1 else 0 end),
-                   sum(case when c.status in ('selected', 'rejected') and year(c.submittedAt) = :year then 1 else 0 end)
+                   SUM(CASE WHEN c.status = 'selected'
+                            AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+                            AND SUBSTRING(c.callDate, 1, 4) = :yearStr THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN c.status = 'selected'
+                            AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+                            AND SUBSTRING(c.callDate, 1, 4) = :yearStr
+                            AND SUBSTRING(c.callDate, 6, 2) = :monthStr THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN c.status = 'pending' THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN c.status IN ('selected', 'rejected')
+                            AND c.callDate IS NOT NULL AND LENGTH(TRIM(c.callDate)) >= 10
+                            AND SUBSTRING(c.callDate, 1, 4) = :yearStr THEN 1 ELSE 0 END)
             FROM TbYouProCase c
             WHERE c.skid IN :skids
             GROUP BY c.skid
             """)
     List<Object[]> aggregatePerSkidDashboardMetrics(
             @Param("skids") Collection<String> skids,
-            @Param("year") int year,
-            @Param("month") int month);
+            @Param("yearStr") String yearStr,
+            @Param("monthStr") String monthStr);
 }

@@ -48,6 +48,10 @@ public class TbLmsMember {
     @Column(name = "com_code")
     private String comCode;
 
-    @Column(name = "mb_hp", length = 20)
-    private String mbHp; // 휴대폰 번호
+    @Column(name = "you_yn") //평가 대상자 여부
+    private String youYn;
+
+    @Column(name = "you_skill") // 평가 대상자 직무
+    private String skill;
+
 }

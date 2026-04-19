@@ -33,6 +33,11 @@ public class AdminService {
 
     private static final int MONTHLY_LIMIT = 3;
 
+    /** {@link TbLmsMember#getYouYn()} 평가대상자 — 대시보드 KPI「평가 대상자」명수 */
+    private static boolean isEvalTargetMember(TbLmsMember m) {
+        return m != null && "Y".equalsIgnoreCase(m.getYouYn());
+    }
+
     private final TbLmsMemberRepository memberRepository;
     private final TbLmsDeptRepository deptRepository;
     private final YouproAdminProperties adminProperties;
@@ -344,8 +349,9 @@ public class AdminService {
     public AdminReviewQueueResponse getReviewQueue() {
         List<TbLmsMember> scoped = loadScopedMembers();
         if (scoped.isEmpty()) {
+            LocalDate now = LocalDate.now();
             return AdminReviewQueueResponse.builder()
-                    .dashboard(emptyDashboard(LocalDate.now().getYear()).toBuilder()
+                    .dashboard(emptyDashboard(now.getYear(), now.getMonthValue()).toBuilder()
                             .filterMeta(buildFilterMeta())
                             .build())
                     .pendingCases(List.of())
@@ -375,7 +381,7 @@ public class AdminService {
         int month = now.getMonthValue();
 
         if (scopedMembers.isEmpty()) {
-            return emptyDashboard(year);
+            return emptyDashboard(year, month);
         }
 
         List<String> allSkids = scopedMembers.stream()
@@ -386,11 +392,20 @@ public class AdminService {
 
         long totalSubmitted = stats.getTotalSubmittedYear();
         long totalSelected = stats.getTotalSelectedYear();
-        int memberCount = scopedMembers.size();
+        int memberCount =
+                (int) scopedMembers.stream().filter(AdminService::isEvalTargetMember).count();
         double centerAvg = memberCount == 0 ? 0.0 : (double) totalSelected / memberCount;
 
         Map<Integer, Long> submittedByMonth = stats.getSubmittedByMonth();
         Map<Integer, Long> selectedByMonth = stats.getSelectedByMonth();
+
+        long monthlySubmitted = submittedByMonth.getOrDefault(month, 0L);
+        long monthlySelected = selectedByMonth.getOrDefault(month, 0L);
+        // 인증율 = 해당 월 접수(call_date) 대비 선정(selected) — 구성원 홈 인증률과 동일 정의
+        Double monthlyCertificationRate =
+                monthlySubmitted == 0
+                        ? null
+                        : Math.round(1000.0 * monthlySelected / monthlySubmitted) / 10.0;
 
         Map<String, Long> submittedYearBySkid = caseService.mapSubmittedBySkidForYear(allSkids, year);
         Map<String, Long> submittedMonthBySkid = caseService.mapSubmittedBySkidForYearMonth(allSkids, year, month);
@@ -434,12 +449,16 @@ public class AdminService {
                 .totalSubmitted(totalSubmitted)
                 .totalSelected(totalSelected)
                 .memberCount(memberCount)
+                .currentMonth(month)
+                .monthlySubmitted(monthlySubmitted)
+                .monthlySelected(monthlySelected)
+                .monthlyCertificationRate(monthlyCertificationRate)
                 .monthlyTrend(monthlyTrend)
                 .teams(teams)
                 .build();
     }
 
-    private AdminDashboardResponse emptyDashboard(int year) {
+    private AdminDashboardResponse emptyDashboard(int year, int month) {
         List<AdminDashboardResponse.MonthlyTrendPoint> monthlyTrend = new ArrayList<>();
         for (int m = 1; m <= 12; m++) {
             monthlyTrend.add(AdminDashboardResponse.MonthlyTrendPoint.builder()
@@ -454,6 +473,10 @@ public class AdminService {
                 .totalSubmitted(0L)
                 .totalSelected(0L)
                 .memberCount(0)
+                .currentMonth(month)
+                .monthlySubmitted(0L)
+                .monthlySelected(0L)
+                .monthlyCertificationRate(null)
                 .monthlyTrend(monthlyTrend)
                 .teams(List.of())
                 .build();
@@ -521,12 +544,15 @@ public class AdminService {
                 .mapToLong(m -> judgedMap.getOrDefault(m.getSkid(), 0L))
                 .sum();
 
+        int evalTargetMemberCount =
+                (int) members.stream().filter(AdminService::isEvalTargetMember).count();
+
         return TeamSummary.builder()
                 .id(deptIdx)
                 .centerName(centerName != null ? centerName : "")
                 .groupName(groupName != null ? groupName : "")
                 .name(teamName)
-                .memberCount(members.size())
+                .memberCount(evalTargetMemberCount)
                 .totalSubmitted(teamSubmittedYear)
                 .totalSelected(teamTotal)
                 .avgSelected(Math.round(avg * 10.0) / 10.0)
