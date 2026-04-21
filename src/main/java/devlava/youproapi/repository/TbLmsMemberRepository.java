@@ -2,6 +2,9 @@ package devlava.youproapi.repository;
 
 import devlava.youproapi.domain.TbLmsMember;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
@@ -38,4 +41,16 @@ public interface TbLmsMemberRepository extends JpaRepository<TbLmsMember, String
      */
     List<TbLmsMember> findByUseYnAndDeptIdxInAndYouYn(
             String useYn, Collection<Integer> deptIdxes, String youYn);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE TbLmsMember m
+               SET m.skill = :skill,
+                   m.youYn = :youYn
+             WHERE m.skid = :skid
+            """)
+    int updateYouSkillAndYouYnBySkid(
+            @Param("skid") String skid,
+            @Param("skill") String skill,
+            @Param("youYn") String youYn);
 }

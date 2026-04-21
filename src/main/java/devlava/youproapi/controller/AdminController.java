@@ -16,10 +16,11 @@ import devlava.youproapi.dto.CsSatisfactionRankingResponse;
 import devlava.youproapi.dto.CsSatisfactionSummaryResponse;
 import devlava.youproapi.dto.CsSatisfactionTargetsUnifiedRequest;
 import devlava.youproapi.dto.CsSatisfactionTargetsUnifiedResponse;
-import devlava.youproapi.dto.CsSatisfactionUploadResponse;
+import devlava.youproapi.dto.TargetMemberUploadResponse;
 import devlava.youproapi.dto.TeamDetailResponse;
 import devlava.youproapi.service.AdminService;
 import devlava.youproapi.service.CsSatisfactionService;
+import devlava.youproapi.service.TargetMemberUploadService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -38,6 +39,7 @@ public class AdminController {
 
     private final AdminService adminService;
     private final CsSatisfactionService csSatisfactionService;
+    private final TargetMemberUploadService targetMemberUploadService;
 
     /**
      * 관리자 대시보드
@@ -187,17 +189,7 @@ public class AdminController {
     }
 
     /**
-     * CS 만족도 엑셀 업로드 (.xlsx) — 파일에 포함된 날짜는 기존 행 삭제 후 재적재
-     * POST /api/admin/cs-satisfaction/upload  (multipart file 필드명: file)
-     */
-    @PostMapping(value = "/cs-satisfaction/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<CsSatisfactionUploadResponse> csSatisfactionUpload(
-            @RequestPart("file") MultipartFile file) throws IOException {
-        return ResponseEntity.ok(csSatisfactionService.uploadExcel(file));
-    }
-
-    /**
-     * 월간 목표(%) 조회 — 상위 센터별 저장 여부 포함 (엑셀 업로드 전 완료 확인용). DB에는 해당 월 1일로 저장.
+     * 월간 목표(%) 조회 — 상위 센터별 저장 여부 포함. DB에는 해당 월 1일로 저장.
      * GET /api/admin/cs-satisfaction/monthly-targets?year=&month=
      */
     @GetMapping("/cs-satisfaction/monthly-targets")
@@ -238,5 +230,15 @@ public class AdminController {
             @Valid @RequestBody CsSatisfactionTargetsUnifiedRequest req) {
         csSatisfactionService.upsertTargetsUnified(req);
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 평가 대상자 업로드
+     * POST /api/admin/target-members/upload (multipart file 필드명: file)
+     */
+    @PostMapping(value = "/target-members/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<TargetMemberUploadResponse> targetMembersUpload(
+            @RequestPart("file") MultipartFile file) throws IOException {
+        return ResponseEntity.ok(targetMemberUploadService.uploadExcel(file));
     }
 }

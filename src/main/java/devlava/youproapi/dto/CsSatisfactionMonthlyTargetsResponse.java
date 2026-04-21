@@ -13,7 +13,7 @@ public class CsSatisfactionMonthlyTargetsResponse {
     private int year;
     private int month;
     /**
-     * 해당 연·월에 설정된 모든 상위 센터(second-depth)에 목표가 DB에 있으면 true — 엑셀 업로드 허용 기준.
+     * 해당 연·월에 설정된 모든 상위 센터(second-depth)에 목표가 DB에 있으면 true.
      * 저장 키는 항상 그 달 1일({@code target_date}).
      */
     private boolean allCentersSet;

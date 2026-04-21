@@ -5,6 +5,7 @@ import devlava.youproapi.dto.CaseSubmitRequest;
 import devlava.youproapi.dto.MemberCsFocusTasksResponse;
 import devlava.youproapi.dto.MemberCsUnsatisfiedDetailsResponse;
 import devlava.youproapi.dto.MemberHomeResponse;
+import devlava.youproapi.dto.MemberSatisfactionResponse;
 import devlava.youproapi.service.CaseService;
 import devlava.youproapi.service.CsSatisfactionService;
 import devlava.youproapi.service.MemberService;
@@ -40,6 +41,18 @@ public class MemberController {
     @GetMapping("/cases")
     public ResponseEntity<List<CaseResponse>> getMyCases(@RequestParam String skid) {
         return ResponseEntity.ok(caseService.getMyCases(skid));
+    }
+
+    /**
+     * 구성원 당월 만족도 요약
+     * GET /api/member/satisfaction?skid=&year=&month=
+     */
+    @GetMapping("/satisfaction")
+    public ResponseEntity<MemberSatisfactionResponse> getMemberSatisfaction(
+            @RequestParam String skid,
+            @RequestParam int year,
+            @RequestParam int month) {
+        return ResponseEntity.ok(csSatisfactionService.getMemberSatisfaction(skid, year, month));
     }
 
     /**

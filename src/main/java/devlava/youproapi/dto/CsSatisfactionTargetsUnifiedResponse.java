@@ -16,7 +16,7 @@ public class CsSatisfactionTargetsUnifiedResponse {
     private int year;
     private int month;
 
-    /** 모든 필수 목표가 설정되었는지 여부 (엑셀 업로드 허용 기준) */
+    /** 모든 필수 목표가 설정되었는지 여부 */
     private boolean allTargetsSet;
 
     /** 부서별 월간 목표 */

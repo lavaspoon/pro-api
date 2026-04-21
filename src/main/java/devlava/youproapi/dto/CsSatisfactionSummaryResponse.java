@@ -35,5 +35,11 @@ public class CsSatisfactionSummaryResponse {
         private Double targetPercent;
         /** 목표 대비 달성율: 만족비중/목표%*100, 목표 없으면 null */
         private Double achievementRate;
+        /** 이달 스킬목표 달성 구성원 수 (you_skill 기준) */
+        private Long monthlySkillTargetAchievedCount;
+        /** 이달 스킬목표 판정 가능 구성원 수 (목표 존재 + 평가건수>0) */
+        private Long monthlySkillTargetEligibleCount;
+        /** 이달 스킬목표 달성률% (달성/대상*100), 대상 0이면 null */
+        private Double monthlySkillTargetAchievementRate;
     }
 }
