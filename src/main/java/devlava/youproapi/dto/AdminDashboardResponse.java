@@ -50,6 +50,8 @@ public class AdminDashboardResponse {
         private String centerName;
         /** leaf 직속 상위 부서명 — 상위가 센터이면 빈 문자열 */
         private String groupName;
+        /** leaf 팀 부서 스킬 ({@code TB_LMS_DEPT.you_skill}) */
+        private String skill;
         private String name;           // deptName
         /** 팀명 옆 배지용 — {@code you_yn = Y} 평가대상자 수 */
         private int memberCount;

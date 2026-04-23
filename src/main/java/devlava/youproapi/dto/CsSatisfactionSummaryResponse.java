@@ -22,6 +22,8 @@ public class CsSatisfactionSummaryResponse {
         private String centerName;
         /** 리프 직상 부모가 센터가 아니면 그 부모 부서명, 없으면 {@code —}. */
         private String groupName;
+        /** 리프 팀 부서 스킬 ({@code TB_LMS_DEPT.you_skill}) */
+        private String skill;
         /** 리프 팀 부서명 (또는 기타 행 문구). */
         private String secondDepthName;
         /** 해당 리프 팀 서브트리 소속 · {@code you_yn = Y} 인 구성원 수 */
@@ -35,11 +37,17 @@ public class CsSatisfactionSummaryResponse {
         private Double targetPercent;
         /** 목표 대비 달성율: 만족비중/목표%*100, 목표 없으면 null */
         private Double achievementRate;
-        /** 이달 스킬목표 달성 구성원 수 (you_skill 기준) */
+        /** 이달 스킬목표 달성 구성원 수 (소속 부서 {@code TB_LMS_DEPT.you_skill} 기준) */
         private Long monthlySkillTargetAchievedCount;
         /** 이달 스킬목표 판정 가능 구성원 수 (목표 존재 + 평가건수>0) */
         private Long monthlySkillTargetEligibleCount;
         /** 이달 스킬목표 달성률% (달성/대상*100), 대상 0이면 null */
         private Double monthlySkillTargetAchievementRate;
+        /** 중점추진과제(만족 Y + 5대 도시 Y) 건수 */
+        private Long fiveMajorCitiesCount;
+        /** 중점추진과제(만족 Y + 5060 Y) 건수 */
+        private Long gen5060Count;
+        /** 중점추진과제(만족 Y + 문제해결 Y) 건수 */
+        private Long problemResolvedCount;
     }
 }

@@ -32,6 +32,8 @@ public class CsSatisfactionCenterMonthDetailResponse {
         private String skid;
         private String mbName;
         private String deptName;
+        /** 구성원 소속 부서 skill의 해당 월 목표% (없으면 null) */
+        private Double targetPercent;
         private long evalCount;
         private long satisfiedCount;
         private long dissatisfiedCount;

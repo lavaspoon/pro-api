@@ -5,8 +5,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import javax.persistence.*;
-import java.time.Instant;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 @Getter
 @Setter
@@ -26,12 +26,8 @@ public class TbCsSatisfactionRecord {
     @Column(name = "\"상담사id\"", nullable = false, length = 64)
     private String skid;
 
-    @Convert(converter = LocalDateStringConverter.class)
-    @Column(name = "\"상담일자\"", nullable = false, length = 10)
-    private LocalDate evalDate;
-
-    @Column(name = "\"상담시간\"", length = 20)
-    private String consultTime;
+    @Column(name = "\"상담일시\"", nullable = false)
+    private LocalDateTime evalDate;
 
     @Column(name = "\"상담유형1\"", length = 200)
     private String consultType1;
@@ -57,12 +53,22 @@ public class TbCsSatisfactionRecord {
     @Column(name = "\"만족여부\"", nullable = false, length = 1)
     private String satisfiedYn;
 
-    @Column(name = "\"5대도시\"", length = 1)
+    @Column(name = "\"오대도시\"", length = 1)
     private String fiveMajorCitiesYn;
 
-    @Column(name = "\"5060\"", length = 1)
+    @Column(name = "\"오공육공\"", length = 1)
     private String gen5060Yn;
 
-    @Column(name = "created_at", nullable = false)
-    private Instant createdAt = Instant.now();
+    @Column(name = "\"문제해결\"", length = 1)
+    private String problemResolvedYn;
+
+    @Column(name = "\"업로드일자\"", nullable = false)
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    public String getConsultTime() {
+        if (evalDate == null) {
+            return null;
+        }
+        return evalDate.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
+    }
 }

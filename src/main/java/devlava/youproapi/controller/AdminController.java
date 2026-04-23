@@ -7,6 +7,7 @@ import devlava.youproapi.dto.AdminReviewQueueResponse;
 import devlava.youproapi.dto.CaseJudgeRequest;
 import devlava.youproapi.dto.CaseResponse;
 import devlava.youproapi.dto.CsSatisfactionCenterMonthDetailResponse;
+import devlava.youproapi.dto.CsSatisfactionMemberMonthlyRowsResponse;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsRequest;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsResponse;
 import devlava.youproapi.dto.CsSatisfactionAdminDashboardKpiResponse;
@@ -126,8 +127,9 @@ public class AdminController {
     @GetMapping("/cs-satisfaction/summary")
     public ResponseEntity<CsSatisfactionSummaryResponse> csSatisfactionSummary(
             @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month,
             @RequestParam(required = false) Integer secondDepthDeptId) {
-        return ResponseEntity.ok(csSatisfactionService.getSummary(year, secondDepthDeptId));
+        return ResponseEntity.ok(csSatisfactionService.getSummary(year, month, secondDepthDeptId));
     }
 
     /**
@@ -159,8 +161,9 @@ public class AdminController {
      */
     @GetMapping("/cs-satisfaction/dashboard-kpis")
     public ResponseEntity<CsSatisfactionAdminDashboardKpiResponse> csSatisfactionDashboardKpis(
-            @RequestParam(required = false) Integer year) {
-        return ResponseEntity.ok(csSatisfactionService.getAdminDashboardKpis(year));
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
+        return ResponseEntity.ok(csSatisfactionService.getAdminDashboardKpis(year, month));
     }
 
     /**
@@ -170,9 +173,9 @@ public class AdminController {
     @GetMapping("/cs-satisfaction/ranking")
     public ResponseEntity<CsSatisfactionRankingResponse> csSatisfactionRanking(
             @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month,
             @RequestParam(required = false, defaultValue = "3") int topN) {
-        int y = year != null ? year : LocalDate.now().getYear();
-        return ResponseEntity.ok(csSatisfactionService.getRanking(y, topN));
+        return ResponseEntity.ok(csSatisfactionService.getRanking(year, month, topN));
     }
 
     /**
@@ -186,6 +189,17 @@ public class AdminController {
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) Integer month) {
         return ResponseEntity.ok(csSatisfactionService.getCenterMonthDetail(secondDepthDeptId, year, month));
+    }
+
+    /**
+     * CS 만족도 — 구성원별 연간 접수 row를 월별 그룹으로 조회
+     * GET /api/admin/cs-satisfaction/member-monthly-rows?skid=&year=
+     */
+    @GetMapping("/cs-satisfaction/member-monthly-rows")
+    public ResponseEntity<CsSatisfactionMemberMonthlyRowsResponse> csSatisfactionMemberMonthlyRows(
+            @RequestParam String skid,
+            @RequestParam(required = false) Integer year) {
+        return ResponseEntity.ok(csSatisfactionService.getMemberMonthlyRows(skid, year));
     }
 
     /**

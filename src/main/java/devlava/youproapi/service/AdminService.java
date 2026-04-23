@@ -292,7 +292,8 @@ public class AdminService {
                     judgedMap,
                     fallbackName,
                     centerName,
-                    groupName));
+                    groupName,
+                    leaf.getSkill()));
         }
         return out;
     }
@@ -431,6 +432,7 @@ public class AdminService {
                         judgedMap,
                         null,
                         "",
+                        "",
                         ""))
                 .collect(Collectors.toList());
 
@@ -501,7 +503,8 @@ public class AdminService {
             Map<String, Long> judgedMap,
             String teamNameFallback,
             String centerName,
-            String groupName) {
+            String groupName,
+            String skill) {
 
         String teamName = !members.isEmpty()
                 ? members.get(0).getDeptName()
@@ -551,6 +554,7 @@ public class AdminService {
                 .id(deptIdx)
                 .centerName(centerName != null ? centerName : "")
                 .groupName(groupName != null ? groupName : "")
+                .skill(skill != null ? skill.trim() : "")
                 .name(teamName)
                 .memberCount(evalTargetMemberCount)
                 .totalSubmitted(teamSubmittedYear)

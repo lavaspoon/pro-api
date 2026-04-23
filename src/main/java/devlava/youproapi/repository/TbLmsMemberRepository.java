@@ -45,12 +45,10 @@ public interface TbLmsMemberRepository extends JpaRepository<TbLmsMember, String
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             UPDATE TbLmsMember m
-               SET m.skill = :skill,
-                   m.youYn = :youYn
+               SET m.youYn = :youYn
              WHERE m.skid = :skid
             """)
-    int updateYouSkillAndYouYnBySkid(
+    int updateYouYnBySkid(
             @Param("skid") String skid,
-            @Param("skill") String skill,
             @Param("youYn") String youYn);
 }

@@ -32,4 +32,7 @@ public class TbLmsDept {
 
     @Column(name = "use_yn")
     private String useYn;
+
+    @Column(name = "you_skill") // 평가 대상자 직무(부서 기준)
+    private String skill;
 }

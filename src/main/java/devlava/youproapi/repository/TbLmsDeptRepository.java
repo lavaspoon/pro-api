@@ -2,7 +2,9 @@ package devlava.youproapi.repository;
 
 import devlava.youproapi.domain.TbLmsDept;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -26,4 +28,14 @@ public interface TbLmsDeptRepository extends JpaRepository<TbLmsDept, Integer> {
      * 부서명으로 부서 조회
      */
     List<TbLmsDept> findByDeptName(String deptName);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE TbLmsDept d
+               SET d.skill = :skill
+             WHERE d.deptId = :deptId
+            """)
+    int updateYouSkillByDeptId(
+            @Param("deptId") Integer deptId,
+            @Param("skill") String skill);
 }

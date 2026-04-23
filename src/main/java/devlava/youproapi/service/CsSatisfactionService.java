@@ -9,6 +9,7 @@ import devlava.youproapi.domain.TbLmsDept;
 import devlava.youproapi.domain.TbLmsMember;
 import devlava.youproapi.dto.AdminFilterMetaResponse;
 import devlava.youproapi.dto.CsSatisfactionCenterMonthDetailResponse;
+import devlava.youproapi.dto.CsSatisfactionMemberMonthlyRowsResponse;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsRequest;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsResponse;
 import devlava.youproapi.dto.CsSatisfactionMonthlyOverviewResponse;
@@ -37,6 +38,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -53,6 +55,17 @@ public class CsSatisfactionService {
 
     private static boolean isEvalTarget(TbLmsMember m) {
         return m != null && EVAL_TARGET_YES.equalsIgnoreCase(m.getYouYn());
+    }
+
+    private static String resolveDeptSkill(TbLmsMember member, Map<Integer, TbLmsDept> deptById) {
+        if (member == null || member.getDeptIdx() == null || deptById == null || deptById.isEmpty()) {
+            return null;
+        }
+        TbLmsDept dept = deptById.get(member.getDeptIdx());
+        if (dept == null || dept.getSkill() == null || dept.getSkill().isBlank()) {
+            return null;
+        }
+        return dept.getSkill().trim();
     }
 
     private final TbCsSatisfactionRecordRepository recordRepository;
@@ -76,7 +89,8 @@ public class CsSatisfactionService {
         }
         LocalDate from = LocalDate.of(year, month, 1);
         LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
-        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetweenAndSkid(from, to, skid);
+        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetweenAndSkid(
+                atStartOfDay(from), atEndOfDay(to), skid);
         long fiveMajor = 0;
         long gen5060 = 0;
         for (TbCsSatisfactionRecord r : records) {
@@ -104,16 +118,25 @@ public class CsSatisfactionService {
         LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
         LocalDate monthKey = firstDayOfMonth(year, month);
 
-        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetweenAndSkid(from, to, skid);
+        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetweenAndSkid(
+                atStartOfDay(from), atEndOfDay(to), skid);
         long received = records.size();
         long sat = records.stream().filter(r -> "Y".equalsIgnoreCase(r.getSatisfiedYn())).count();
         long unsat = records.stream().filter(r -> "N".equalsIgnoreCase(r.getSatisfiedYn())).count();
 
         TbLmsMember member = memberRepository.findById(skid).orElse(null);
         Double targetPct = null;
-        if (member != null && member.getSkill() != null && !member.getSkill().isBlank()) {
+        String deptSkill = null;
+        if (member != null && member.getDeptIdx() != null) {
+            deptSkill = deptRepository.findById(member.getDeptIdx())
+                    .map(TbLmsDept::getSkill)
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .orElse(null);
+        }
+        if (deptSkill != null) {
             targetPct = skillTargetRepository
-                    .findByTargetDateAndSkillName(monthKey, member.getSkill().trim())
+                    .findByTargetDateAndSkillName(monthKey, deptSkill)
                     .map(t -> t.getTargetPercent().doubleValue())
                     .orElse(null);
         }
@@ -139,7 +162,7 @@ public class CsSatisfactionService {
 
         Map<LocalDate, List<TbCsSatisfactionRecord>> byDay = records.stream()
                 .filter(r -> r.getEvalDate() != null)
-                .collect(Collectors.groupingBy(TbCsSatisfactionRecord::getEvalDate));
+                .collect(Collectors.groupingBy(r -> r.getEvalDate().toLocalDate()));
         List<MemberSatisfactionResponse.DailyTrendPoint> dailyTrend = byDay.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .map(e -> {
@@ -195,17 +218,73 @@ public class CsSatisfactionService {
         LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
         List<TbCsSatisfactionRecord> rows = recordRepository
                 .findByEvalDateBetweenAndSkidAndDissatisfactionTypeOrderByEvalDateDescIdDesc(
-                        from, to, skid, dissatisfactionType);
+                        atStartOfDay(from), atEndOfDay(to), skid, dissatisfactionType);
         List<MemberCsUnsatisfiedRecordItem> items = rows.stream()
                 .map(this::toUnsatisfiedItem)
                 .collect(Collectors.toList());
         return new MemberCsUnsatisfiedDetailsResponse(items);
     }
 
+    public CsSatisfactionMemberMonthlyRowsResponse getMemberMonthlyRows(String skid, Integer year) {
+        if (skid == null || skid.isBlank()) {
+            throw new IllegalArgumentException("skid가 필요합니다.");
+        }
+        LocalDate now = LocalDate.now();
+        int y = year != null ? year : now.getYear();
+        LocalDate from = LocalDate.of(y, 1, 1);
+        LocalDate to = LocalDate.of(y, 12, 31);
+
+        String normalizedSkid = skid.trim();
+        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetweenAndSkidOrderByEvalDateDescIdDesc(
+                atStartOfDay(from), atEndOfDay(to), normalizedSkid);
+        String memberName = memberRepository.findById(normalizedSkid)
+                .map(TbLmsMember::getMbName)
+                .orElse(null);
+
+        Map<Integer, List<TbCsSatisfactionRecord>> byMonth = new LinkedHashMap<>();
+        for (TbCsSatisfactionRecord rec : records) {
+            if (rec.getEvalDate() == null) continue;
+            int monthKey = rec.getEvalDate().getMonthValue();
+            byMonth.computeIfAbsent(monthKey, k -> new ArrayList<>()).add(rec);
+        }
+
+        List<CsSatisfactionMemberMonthlyRowsResponse.MonthBucket> months = new ArrayList<>();
+        for (Map.Entry<Integer, List<TbCsSatisfactionRecord>> e : byMonth.entrySet()) {
+            List<CsSatisfactionMemberMonthlyRowsResponse.RowItem> rows = e.getValue().stream()
+                    .map(r -> CsSatisfactionMemberMonthlyRowsResponse.RowItem.builder()
+                            .id(r.getId())
+                            .consultDateTime(r.getEvalDate())
+                            .consultType1(r.getConsultType1())
+                            .consultType2(r.getConsultType2())
+                            .consultType3(r.getConsultType3())
+                            .satisfiedYn(r.getSatisfiedYn())
+                            .fiveMajorCitiesYn(r.getFiveMajorCitiesYn())
+                            .gen5060Yn(r.getGen5060Yn())
+                            .problemResolvedYn(r.getProblemResolvedYn())
+                            .goodMent(r.getGoodMent())
+                            .badMent(r.getBadMent())
+                            .build())
+                    .collect(Collectors.toList());
+            months.add(CsSatisfactionMemberMonthlyRowsResponse.MonthBucket.builder()
+                    .month(e.getKey())
+                    .count(rows.size())
+                    .rows(rows)
+                    .build());
+        }
+
+        return CsSatisfactionMemberMonthlyRowsResponse.builder()
+                .year(y)
+                .skid(normalizedSkid)
+                .memberName(memberName)
+                .totalCount(records.size())
+                .months(months)
+                .build();
+    }
+
     private MemberCsUnsatisfiedRecordItem toUnsatisfiedItem(TbCsSatisfactionRecord r) {
         return new MemberCsUnsatisfiedRecordItem(
                 r.getId(),
-                r.getEvalDate(),
+                r.getEvalDate() != null ? r.getEvalDate().toLocalDate() : null,
                 r.getConsultTime(),
                 r.getSubsidiaryType(),
                 null,
@@ -220,11 +299,13 @@ public class CsSatisfactionService {
                 r.getBadMent(),
                 r.getFiveMajorCitiesYn(),
                 r.getGen5060Yn(),
-                null);
+                r.getProblemResolvedYn());
     }
 
-    public CsSatisfactionSummaryResponse getSummary(Integer year, Integer secondDepthDeptIdFilter) {
-        int y = year != null ? year : LocalDate.now().getYear();
+    public CsSatisfactionSummaryResponse getSummary(Integer year, Integer month, Integer secondDepthDeptIdFilter) {
+        LocalDate now = LocalDate.now();
+        int y = year != null ? year : now.getYear();
+        int selectedMonth = month != null ? month : now.getMonthValue();
         validateSecondDepthFilter(secondDepthDeptIdFilter);
 
         if (secondDepthDeptIdFilter != null && secondDepthDeptIdFilter == SECOND_DEPTH_UNMATCHED) {
@@ -235,10 +316,11 @@ public class CsSatisfactionService {
                     .build();
         }
 
-        LocalDate from = LocalDate.of(y, 1, 1);
-        LocalDate to = LocalDate.of(y, 12, 31);
+        LocalDate from = LocalDate.of(y, selectedMonth, 1);
+        LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
 
-        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetween(from, to);
+        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetween(
+                atStartOfDay(from), atEndOfDay(to));
         Set<String> skids = records.stream()
                 .map(TbCsSatisfactionRecord::getSkid)
                 .filter(s -> s != null && !s.isBlank())
@@ -257,10 +339,9 @@ public class CsSatisfactionService {
         Map<Integer, String> rootNames = loadRootNames(roots);
         Map<Integer, Integer> leafToConfiguredCenter = buildLeafToConfiguredCenterMap();
         Set<Integer> allowedLeaves = leafTeamIdsExcludingFilterCenters();
-        LocalDate now = LocalDate.now();
-        LocalDate thisMonthFrom = LocalDate.of(now.getYear(), now.getMonthValue(), 1);
-        LocalDate thisMonthTo = thisMonthFrom.withDayOfMonth(thisMonthFrom.lengthOfMonth());
-        LocalDate thisMonthKey = firstDayOfMonth(now.getYear(), now.getMonthValue());
+        LocalDate thisMonthFrom = from;
+        LocalDate thisMonthTo = to;
+        LocalDate thisMonthKey = firstDayOfMonth(y, selectedMonth);
 
         List<TbLmsDept> leafDepts = listLeafTeamsFromConfig(
                 allDepts,
@@ -271,7 +352,8 @@ public class CsSatisfactionService {
             aggByLeaf.put(leaf.getDeptId(), new Agg());
         }
 
-        List<TbCsSatisfactionRecord> monthRecords = recordRepository.findByEvalDateBetween(thisMonthFrom, thisMonthTo);
+        List<TbCsSatisfactionRecord> monthRecords = recordRepository.findByEvalDateBetween(
+                atStartOfDay(thisMonthFrom), atEndOfDay(thisMonthTo));
         Set<String> monthSkids = monthRecords.stream()
                 .map(TbCsSatisfactionRecord::getSkid)
                 .filter(s -> s != null && !s.isBlank())
@@ -294,6 +376,7 @@ public class CsSatisfactionService {
         }
 
         Map<String, Double> monthSkillTargetCache = new HashMap<>();
+        Map<String, Double> rowSkillTargetCache = new HashMap<>();
         for (TbCsSatisfactionRecord rec : records) {
             TbLmsMember m = memberBySkid.get(rec.getSkid());
             if (m == null || m.getDeptIdx() == null || !isEvalTarget(m)) {
@@ -307,6 +390,15 @@ public class CsSatisfactionService {
             bucket.eval++;
             if ("Y".equalsIgnoreCase(rec.getSatisfiedYn())) {
                 bucket.sat++;
+                if (isYes(rec.getFiveMajorCitiesYn())) {
+                    bucket.fiveMajor++;
+                }
+                if (isYes(rec.getGen5060Yn())) {
+                    bucket.gen5060++;
+                }
+                if (isProblemResolvedYes(rec)) {
+                    bucket.problemResolved++;
+                }
             } else if ("N".equalsIgnoreCase(rec.getSatisfiedYn())) {
                 bucket.diss++;
             }
@@ -322,10 +414,18 @@ public class CsSatisfactionService {
             if (rootForTarget == null) {
                 rootForTarget = leafToConfiguredCenter.get(leaf.getDeptId());
             }
-            Double targetAvg = rootForTarget != null
-                    ? averageTargetPercentForYear(rootForTarget, from, to)
-                    : null;
+            Double targetAvg = null;
             Double achievement = null;
+            String rowSkillRaw = leaf.getSkill();
+            String rowSkill = (rowSkillRaw != null && !rowSkillRaw.isBlank())
+                    ? rowSkillRaw.trim()
+                    : "—";
+            if (!"—".equals(rowSkill)) {
+                targetAvg = rowSkillTargetCache.computeIfAbsent(rowSkill, sk ->
+                        skillTargetRepository.findByTargetDateAndSkillName(thisMonthKey, sk)
+                                .map(t -> t.getTargetPercent().doubleValue())
+                                .orElse(null));
+            }
             if (targetAvg != null && targetAvg > 0 && satRate != null) {
                 achievement = round1(100.0 * satRate / targetAvg);
             }
@@ -362,7 +462,7 @@ public class CsSatisfactionService {
                 Agg ma = e.getValue();
                 if (ma.eval <= 0) continue;
                 TbLmsMember mm = monthMemberBySkid.get(e.getKey());
-                String skill = (mm != null && mm.getSkill() != null) ? mm.getSkill().trim() : null;
+                String skill = resolveDeptSkill(mm, deptById);
                 if (skill == null || skill.isEmpty()) continue;
                 Double targetPct = monthSkillTargetCache.computeIfAbsent(skill, sk ->
                         skillTargetRepository.findByTargetDateAndSkillName(thisMonthKey, sk)
@@ -381,6 +481,7 @@ public class CsSatisfactionService {
                     .secondDepthDeptId(leaf.getDeptId())
                     .centerName(centerName)
                     .groupName(groupName)
+                    .skill(rowSkill)
                     .secondDepthName(leafName)
                     .evalTargetMemberCount(evalTargetMemberCount)
                     .evalCount(a.eval)
@@ -392,6 +493,9 @@ public class CsSatisfactionService {
                     .monthlySkillTargetAchievedCount(monthAchieved)
                     .monthlySkillTargetEligibleCount(monthEligible)
                     .monthlySkillTargetAchievementRate(monthAchievementRate)
+                    .fiveMajorCitiesCount(a.fiveMajor)
+                    .gen5060Count(a.gen5060)
+                    .problemResolvedCount(a.problemResolved)
                     .build());
         }
 
@@ -412,7 +516,8 @@ public class CsSatisfactionService {
         LocalDate from = LocalDate.of(year, 1, 1);
         LocalDate to = LocalDate.of(year, 12, 31);
 
-        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetween(from, to);
+        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetween(
+                atStartOfDay(from), atEndOfDay(to));
         Set<String> skids = records.stream()
                 .map(TbCsSatisfactionRecord::getSkid)
                 .filter(s -> s != null && !s.isBlank())
@@ -490,7 +595,8 @@ public class CsSatisfactionService {
         LocalDate from = LocalDate.of(year, 1, 1);
         LocalDate to = LocalDate.of(year, 12, 31);
 
-        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetween(from, to);
+        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetween(
+                atStartOfDay(from), atEndOfDay(to));
         Set<String> skids = records.stream()
                 .map(TbCsSatisfactionRecord::getSkid)
                 .filter(s -> s != null && !s.isBlank())
@@ -569,15 +675,16 @@ public class CsSatisfactionService {
      * 관리자 만족도 상단 KPI — 센터 연간 목표 대비 달성, 스킬별 평균 달성(당월), 중점 3종 당월 실적(연간 목표 대비).
      * 당월 지표는 서버 현재 연·월 기준입니다.
      */
-    public CsSatisfactionAdminDashboardKpiResponse getAdminDashboardKpis(Integer year) {
+    public CsSatisfactionAdminDashboardKpiResponse getAdminDashboardKpis(Integer year, Integer month) {
         LocalDate now = LocalDate.now();
-        int monthY = now.getYear();
-        int monthM = now.getMonthValue();
+        int monthY = year != null ? year : now.getYear();
+        int monthM = month != null ? month : now.getMonthValue();
         LocalDate fromMonth = LocalDate.of(monthY, monthM, 1);
         LocalDate toMonth = fromMonth.withDayOfMonth(fromMonth.lengthOfMonth());
         LocalDate monthKey = firstDayOfMonth(monthY, monthM);
 
-        List<TbCsSatisfactionRecord> recordsMonth = recordRepository.findByEvalDateBetween(fromMonth, toMonth);
+        List<TbCsSatisfactionRecord> recordsMonth = recordRepository.findByEvalDateBetween(
+                atStartOfDay(fromMonth), atEndOfDay(toMonth));
 
         Set<String> skidsMonth = recordsMonth.stream()
                 .map(TbCsSatisfactionRecord::getSkid)
@@ -731,14 +838,18 @@ public class CsSatisfactionService {
      * 각 지표는 {@code satisfied_yn=Y} 이면서 해당 항목도 Y 인 건만 합산합니다.
      * 집계 범위는 {@link #getMonthlyOverview(int)} 과 동일(평가대상자·2depth 루트·관리자 조직 스코프).
      */
-    public CsSatisfactionRankingResponse getRanking(int year, int topN) {
+    public CsSatisfactionRankingResponse getRanking(Integer year, Integer month, int topN) {
         if (topN < 1) {
             topN = 3;
         }
-        LocalDate from = LocalDate.of(year, 1, 1);
-        LocalDate to = LocalDate.of(year, 12, 31);
+        LocalDate now = LocalDate.now();
+        int y = year != null ? year : now.getYear();
+        int selectedMonth = month != null ? month : now.getMonthValue();
+        LocalDate from = LocalDate.of(y, selectedMonth, 1);
+        LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
 
-        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetween(from, to);
+        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetween(
+                atStartOfDay(from), atEndOfDay(to));
         Set<String> skids = records.stream()
                 .map(TbCsSatisfactionRecord::getSkid)
                 .filter(s -> s != null && !s.isBlank())
@@ -784,7 +895,7 @@ public class CsSatisfactionService {
         }
 
         return CsSatisfactionRankingResponse.builder()
-                .year(year)
+                .year(y)
                 .topN(topN)
                 .topByFiveMajorCities(buildTopRank(agg, memberBySkid, 0, topN))
                 .topByGen5060(buildTopRank(agg, memberBySkid, 1, topN))
@@ -845,6 +956,8 @@ public class CsSatisfactionService {
         }
 
         List<TbLmsDept> allDepts = deptRepository.findAllWithParentFetched();
+        Map<Integer, TbLmsDept> deptById = allDepts.stream()
+                .collect(Collectors.toMap(TbLmsDept::getDeptId, d -> d, (a, b) -> a));
         Map<Integer, Integer> parentOf = buildParentMap(allDepts);
         Set<Integer> roots = new HashSet<>(adminProperties.getSecondDepthDeptIds());
         Set<Integer> allowedLeaves = leafTeamIdsExcludingFilterCenters();
@@ -874,8 +987,13 @@ public class CsSatisfactionService {
             from = LocalDate.of(y, 1, 1);
             to = LocalDate.of(y, 12, 31);
         }
+        final LocalDate targetMonthKey = month != null
+                ? firstDayOfMonth(y, mo)
+                : firstDayOfMonth(now.getYear(), now.getMonthValue());
+        Map<String, Double> monthSkillTargetCache = new HashMap<>();
 
-        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetween(from, to);
+        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetween(
+                atStartOfDay(from), atEndOfDay(to));
         Set<String> skids = records.stream()
                 .map(TbCsSatisfactionRecord::getSkid)
                 .filter(s -> s != null && !s.isBlank())
@@ -936,11 +1054,17 @@ public class CsSatisfactionService {
             Agg a = bySkid.getOrDefault(skid, new Agg());
             String name = mem.getMbName() != null ? mem.getMbName() : null;
             String dname = mem.getDeptName() != null ? mem.getDeptName() : null;
+            String skill = resolveDeptSkill(mem, deptById);
+            Double targetPct = skill == null ? null : monthSkillTargetCache.computeIfAbsent(skill, sk ->
+                    skillTargetRepository.findByTargetDateAndSkillName(targetMonthKey, sk)
+                            .map(t -> t.getTargetPercent().doubleValue())
+                            .orElse(null));
             Double rate = a.eval == 0 ? null : round1(100.0 * a.sat / a.eval);
             memberRows.add(CsSatisfactionCenterMonthDetailResponse.MemberMonthRow.builder()
                     .skid(skid)
                     .mbName(name)
                     .deptName(dname)
+                    .targetPercent(targetPct)
                     .evalCount(a.eval)
                     .satisfiedCount(a.sat)
                     .dissatisfiedCount(a.diss)
@@ -959,11 +1083,17 @@ public class CsSatisfactionService {
             TbLmsMember mem = memberBySkid.get(skid);
             String name = mem != null && mem.getMbName() != null ? mem.getMbName() : null;
             String dname = mem != null && mem.getDeptName() != null ? mem.getDeptName() : null;
+            String skill = resolveDeptSkill(mem, deptById);
+            Double targetPct = skill == null ? null : monthSkillTargetCache.computeIfAbsent(skill, sk ->
+                    skillTargetRepository.findByTargetDateAndSkillName(targetMonthKey, sk)
+                            .map(t -> t.getTargetPercent().doubleValue())
+                            .orElse(null));
             Double rate = a.eval == 0 ? null : round1(100.0 * a.sat / a.eval);
             memberRows.add(CsSatisfactionCenterMonthDetailResponse.MemberMonthRow.builder()
                     .skid(skid)
                     .mbName(name)
                     .deptName(dname)
+                    .targetPercent(targetPct)
                     .evalCount(a.eval)
                     .satisfiedCount(a.sat)
                     .dissatisfiedCount(a.diss)
@@ -1074,11 +1204,11 @@ public class CsSatisfactionService {
     }
 
     /**
-     * 문제해결 여부는 상담유형3 컬럼의 Y 플래그로 집계합니다.
+     * 문제해결 여부는 레코드 {@code 문제해결} 컬럼의 Y 플래그로 집계합니다.
      * (모든 중점지표는 만족여부=Y 인 건에서만 추가 카운트)
      */
     private static boolean isProblemResolvedYes(TbCsSatisfactionRecord rec) {
-        return isYes(rec.getConsultType3());
+        return rec != null && isYes(rec.getProblemResolvedYn());
     }
 
     @Transactional
@@ -1143,6 +1273,14 @@ public class CsSatisfactionService {
             throw new IllegalArgumentException("월은 1~12여야 합니다: " + month);
         }
         return LocalDate.of(year, month, 1);
+    }
+
+    private static LocalDateTime atStartOfDay(LocalDate day) {
+        return day.atStartOfDay();
+    }
+
+    private static LocalDateTime atEndOfDay(LocalDate day) {
+        return day.plusDays(1).atStartOfDay().minusNanos(1);
     }
 
     private void validateSecondDepthFilter(Integer secondDepthDeptIdFilter) {
@@ -1347,17 +1485,6 @@ public class CsSatisfactionService {
                         TbLmsDept::getDeptId,
                         d -> d.getDeptName() != null ? d.getDeptName() : String.valueOf(d.getDeptId()),
                         (a, b) -> a));
-    }
-
-    /** 연도 요약용 — 해당 연도 구간의 월 목표 행(각 월 1일) 평균. */
-    private Double averageTargetPercentForYear(int secondDepthDeptId, LocalDate from, LocalDate to) {
-        List<TbCsSatisfactionDeptMonthlyTarget> list = deptMonthlyTargetRepository
-                .findBySecondDepthDeptIdAndTargetDateBetween(secondDepthDeptId, from, to);
-        if (list.isEmpty()) {
-            return null;
-        }
-        double sum = list.stream().mapToDouble(t -> t.getTargetPercent().doubleValue()).sum();
-        return round1(sum / list.size());
     }
 
     private static Double round1(double v) {

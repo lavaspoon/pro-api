@@ -1,6 +1,8 @@
 package devlava.youproapi.service;
 
 import devlava.youproapi.dto.TargetMemberUploadResponse;
+import devlava.youproapi.domain.TbLmsMember;
+import devlava.youproapi.repository.TbLmsDeptRepository;
 import devlava.youproapi.repository.TbLmsMemberRepository;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.DataFormatter;
@@ -33,6 +35,7 @@ public class TargetMemberUploadService {
 
     private final JdbcTemplate jdbcTemplate;
     private final TbLmsMemberRepository memberRepository;
+    private final TbLmsDeptRepository deptRepository;
 
     @Transactional
     public TargetMemberUploadResponse uploadExcel(MultipartFile file) throws IOException {
@@ -105,18 +108,45 @@ public class TargetMemberUploadService {
             syncBySkid.put(row.skid, new TargetMemberSync(row.skid, row.skill, normalizedYouYn));
         }
 
+        Map<String, TbLmsMember> memberBySkid = syncBySkid.isEmpty()
+                ? Map.of()
+                : memberRepository.findAllById(syncBySkid.keySet()).stream()
+                        .filter(m -> m.getSkid() != null)
+                        .collect(LinkedHashMap::new, (m, v) -> m.put(v.getSkid(), v), Map::putAll);
+
         int updatedMembers = 0;
+        Map<Integer, DeptSkillSync> deptSkillByDeptId = new LinkedHashMap<>();
         for (TargetMemberSync sync : syncBySkid.values()) {
-            updatedMembers += memberRepository.updateYouSkillAndYouYnBySkid(
+            updatedMembers += memberRepository.updateYouYnBySkid(
                     sync.skid(),
-                    sync.skill(),
                     sync.youYn()
             );
+            TbLmsMember member = memberBySkid.get(sync.skid());
+            if (member == null || member.getDeptIdx() == null) {
+                continue;
+            }
+            if (sync.skill() == null || sync.skill().isBlank()) {
+                continue;
+            }
+            Integer deptId = member.getDeptIdx();
+            String newSkill = sync.skill().trim();
+            DeptSkillSync previous = deptSkillByDeptId.get(deptId);
+            if (previous != null && !previous.skill().equals(newSkill)) {
+                warnings.add("부서 " + deptId + ": 스킬 값이 여러 개여서 마지막 값으로 반영했습니다. (" +
+                        previous.skill() + " -> " + newSkill + ")");
+            }
+            deptSkillByDeptId.put(deptId, new DeptSkillSync(deptId, newSkill));
+        }
+
+        int updatedDepts = 0;
+        for (DeptSkillSync sync : deptSkillByDeptId.values()) {
+            updatedDepts += deptRepository.updateYouSkillByDeptId(sync.deptId(), sync.skill());
         }
 
         return TargetMemberUploadResponse.builder()
                 .inserted(parsedRows.size())
                 .updatedMembers(updatedMembers)
+                .updatedDepts(updatedDepts)
                 .skipped(skipped)
                 .warnings(warnings.size() > 50 ? warnings.subList(0, 50) : warnings)
                 .build();
@@ -212,6 +242,9 @@ public class TargetMemberUploadService {
     }
 
     private record TargetMemberSync(String skid, String skill, String youYn) {
+    }
+
+    private record DeptSkillSync(Integer deptId, String skill) {
     }
 
     private static final class TargetRow {

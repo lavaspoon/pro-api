@@ -53,8 +53,7 @@ CREATE TABLE IF NOT EXISTS tb_you_cs (
     id BIGSERIAL PRIMARY KEY,
     "자회사구분" VARCHAR,
     "상담사id" VARCHAR NOT NULL,
-    "상담일자" VARCHAR NOT NULL,
-    "상담시간" VARCHAR,
+    "상담일시" TIMESTAMP NOT NULL,
     "상담유형1" VARCHAR,
     "상담유형2" VARCHAR,
     "상담유형3" VARCHAR,
@@ -63,14 +62,15 @@ CREATE TABLE IF NOT EXISTS tb_you_cs (
     "긍정코멘트" VARCHAR,
     "부정코멘트" VARCHAR,
     "만족여부" VARCHAR NOT NULL,
-    "5대도시" VARCHAR,
-    "5060" VARCHAR,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "오대도시" VARCHAR,
+    "오공육공" VARCHAR,
+    "문제해결" VARCHAR,
+    "업로드일자" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_tb_you_cs_상담일자 ON tb_you_cs ("상담일자");
+CREATE INDEX IF NOT EXISTS idx_tb_you_cs_상담일시 ON tb_you_cs ("상담일시");
 CREATE INDEX IF NOT EXISTS idx_tb_you_cs_상담사id ON tb_you_cs ("상담사id");
-CREATE INDEX IF NOT EXISTS idx_tb_you_cs_상담일자_상담사id ON tb_you_cs ("상담일자", "상담사id");
+CREATE INDEX IF NOT EXISTS idx_tb_you_cs_상담일시_상담사id ON tb_you_cs ("상담일시", "상담사id");
 
 CREATE TABLE IF NOT EXISTS "TB_YOU_TARGET" (
     "회사" VARCHAR,

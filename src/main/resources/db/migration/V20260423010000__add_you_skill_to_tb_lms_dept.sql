@@ -1,0 +1,2 @@
+ALTER TABLE IF EXISTS tb_lms_dept
+    ADD COLUMN IF NOT EXISTS you_skill VARCHAR(100);

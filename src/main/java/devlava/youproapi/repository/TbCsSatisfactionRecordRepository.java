@@ -3,27 +3,32 @@ package devlava.youproapi.repository;
 import devlava.youproapi.domain.TbCsSatisfactionRecord;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
 public interface TbCsSatisfactionRecordRepository extends JpaRepository<TbCsSatisfactionRecord, Long> {
 
     List<TbCsSatisfactionRecord> findByEvalDateBetweenAndSkidIn(
-            LocalDate from,
-            LocalDate to,
+            LocalDateTime from,
+            LocalDateTime to,
             Collection<String> skids);
 
-    List<TbCsSatisfactionRecord> findByEvalDateBetween(LocalDate from, LocalDate to);
+    List<TbCsSatisfactionRecord> findByEvalDateBetween(LocalDateTime from, LocalDateTime to);
 
     List<TbCsSatisfactionRecord> findByEvalDateBetweenAndSkid(
-            LocalDate from,
-            LocalDate to,
+            LocalDateTime from,
+            LocalDateTime to,
+            String skid);
+
+    List<TbCsSatisfactionRecord> findByEvalDateBetweenAndSkidOrderByEvalDateDescIdDesc(
+            LocalDateTime from,
+            LocalDateTime to,
             String skid);
 
     List<TbCsSatisfactionRecord> findByEvalDateBetweenAndSkidAndDissatisfactionTypeOrderByEvalDateDescIdDesc(
-            LocalDate from,
-            LocalDate to,
+            LocalDateTime from,
+            LocalDateTime to,
             String skid,
             Integer dissatisfactionType);
 

@@ -10,6 +10,7 @@ import java.util.List;
 public class TargetMemberUploadResponse {
     private int inserted;
     private int updatedMembers;
+    private int updatedDepts;
     private int skipped;
     private List<String> warnings;
 }

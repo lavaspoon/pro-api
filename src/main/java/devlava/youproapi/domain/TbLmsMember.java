@@ -51,7 +51,4 @@ public class TbLmsMember {
     @Column(name = "you_yn") //평가 대상자 여부
     private String youYn;
 
-    @Column(name = "you_skill") // 평가 대상자 직무
-    private String skill;
-
 }
