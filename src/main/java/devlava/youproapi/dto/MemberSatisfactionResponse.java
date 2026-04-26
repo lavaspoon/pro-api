@@ -8,6 +8,7 @@ import java.util.List;
 @Getter
 @Builder
 public class MemberSatisfactionResponse {
+    private String skill;
     private Double monthlyTargetPct;
     private Double target;
     private Long receivedCount;

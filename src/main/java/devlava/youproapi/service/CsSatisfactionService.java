@@ -177,6 +177,7 @@ public class CsSatisfactionService {
                 .collect(Collectors.toList());
 
         return MemberSatisfactionResponse.builder()
+                .skill(deptSkill)
                 .monthlyTargetPct(targetPct)
                 .target(targetPct)
                 .receivedCount(received)

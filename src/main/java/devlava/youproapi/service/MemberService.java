@@ -2,7 +2,6 @@ package devlava.youproapi.service;
 
 import devlava.youproapi.domain.TbLmsMember;
 import devlava.youproapi.dto.MemberHomeResponse;
-import devlava.youproapi.repository.TbLmsDeptRepository;
 import devlava.youproapi.repository.TbLmsMemberRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,9 +20,10 @@ public class MemberService {
     private static final int ANNUAL_LIMIT = 36;
 
     private final TbLmsMemberRepository memberRepository;
-    private final TbLmsDeptRepository deptRepository;
     private final CaseService caseService;
     private final AdminDeptScopeResolver deptScopeResolver;
+    private final IncentiveReflectService incentiveReflectService;
+    private final CsSatisfactionService csSatisfactionService;
 
     /**
      * 구성원 홈 화면 데이터.
@@ -37,14 +37,26 @@ public class MemberService {
         int year = now.getYear();
         int month = now.getMonthValue();
 
-        long myTotalSelected = caseService.countSelectedBySkidAndYear(skid, year);
-        long monthlySelected = caseService.countSelectedBySkidAndYearMonth(skid, year, month);
-        long pendingCount = caseService.countPendingBySkid(skid);
+        // CS 만족도 달성 월만 집계된 연간 누적 반영 건수 (공식 실적)
+        long myTotalSelected    = incentiveReflectService.sumReflectedForYear(skid, year);
+        // 올해 월별 등급에 따른 누계 지급 예정 금액
+        long totalReflectedWon  = incentiveReflectService.sumPayoutForYear(skid, year);
+        // 이번 달 실시간 선정 건수 (아직 스케줄러 미처리)
+        long monthlySelected    = caseService.countSelectedBySkidAndYearMonth(skid, year, month);
+        long pendingCount       = caseService.countPendingBySkid(skid);
 
-        double teamAvgSelected = calcTeamAvg(member.getDeptIdx(), year);
+        double teamAvgSelected  = calcTeamAvg(member.getDeptIdx(), year);
+
+        // topSelected: 올해 반영 건수가 가장 많은 구성원의 누적 건수
+        long topSelected = incentiveReflectService.maxReflectedForYear(year);
 
         EvalCenterRank evalRank = computeEvalCenterTeamRank(member, year);
-        IndividualRank indRank = computeIndividualRank(skid, year);
+        IndividualRank indRank  = computeIndividualRankFromReflect(skid, year);
+
+        // 이달 만족도 달성 여부 — CsSatisfactionService.getMemberSatisfaction() 의 monthlyTargetMet 그대로 사용
+        Boolean currentMonthCsTargetMet = csSatisfactionService
+                .getMemberSatisfaction(skid, year, month)
+                .getMonthlyTargetMet();
 
         return MemberHomeResponse.builder()
                 .team(MemberHomeResponse.TeamInfo.builder()
@@ -57,6 +69,9 @@ public class MemberService {
                 .monthlyLimit(MONTHLY_LIMIT)
                 .pendingCount(pendingCount)
                 .annualLimit(ANNUAL_LIMIT)
+                .totalReflectedWon(totalReflectedWon)
+                .topSelected(topSelected)
+                .currentMonthCsTargetMet(currentMonthCsTargetMet)
                 .evalCenterInScope(evalRank.inScope)
                 .evalCenterTeamRank(evalRank.rank)
                 .evalCenterTeamTotal(evalRank.totalTeams)
@@ -118,28 +133,36 @@ public class MemberService {
         return new EvalCenterRank(true, null, totalTeams, myTeamTotal);
     }
 
-    /** youYn='Y' 평가대상자 전원 대상 개인 선정 건수 기준 순위 계산 */
-    private IndividualRank computeIndividualRank(String skid, int year) {
+    /**
+     * 반영 건수 기반 개인 순위 계산.
+     * CS 만족도 달성 여부가 반영된 {@code tb_you_incentive_reflect} 기준.
+     */
+    private IndividualRank computeIndividualRankFromReflect(String skid, int year) {
+        Map<String, Long> reflectedBySkid = incentiveReflectService.reflectedCountMapForYear(year);
+        if (reflectedBySkid.isEmpty()) {
+            return new IndividualRank(null, 0);
+        }
+
+        // 평가대상자 전원 포함 (반영 0건도 포함)
         List<TbLmsMember> targets = memberRepository.findByUseYn("Y").stream()
                 .filter(m -> "Y".equals(m.getYouYn()))
                 .collect(Collectors.toList());
+        int total = targets.isEmpty() ? reflectedBySkid.size() : targets.size();
 
-        if (targets.isEmpty()) return new IndividualRank(null, 0);
+        List<Long> sorted = new ArrayList<>(reflectedBySkid.values());
+        sorted.sort(Comparator.reverseOrder());
 
-        List<String> skids = targets.stream().map(TbLmsMember::getSkid).collect(Collectors.toList());
-        Map<String, Long> selectedBySkid = caseService.mapSelectedBySkidForYear(skids, year);
+        long myCount = reflectedBySkid.getOrDefault(skid, 0L);
+        if (myCount <= 0) {
+            return new IndividualRank(null, total);
+        }
 
-        List<Long> sorted = selectedBySkid.values().stream()
-                .sorted(Comparator.reverseOrder())
-                .collect(Collectors.toList());
-
-        long myCount = selectedBySkid.getOrDefault(skid, 0L);
         int rank = 1;
         for (int i = 0; i < sorted.size(); i++) {
             if (i > 0 && sorted.get(i) < sorted.get(i - 1)) rank = i + 1;
-            if (sorted.get(i) == myCount) return new IndividualRank(rank, targets.size());
+            if (sorted.get(i).equals(myCount)) return new IndividualRank(rank, total);
         }
-        return new IndividualRank(targets.size(), targets.size());
+        return new IndividualRank(total, total);
     }
 
     private static final class IndividualRank {
