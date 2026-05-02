@@ -10,17 +10,22 @@ import java.time.LocalDate;
 /**
  * YOU PRO 인센티브 반영 스케줄러.
  *
- * <p>매년 2월 1일 ~ 10월 1일(매달 1일 자정)에 실행하여
- * <strong>전달(1~9월)</strong>의 CS 만족도 달성 여부를 확인하고
- * 선정건수를 실적에 반영한다.
+ * <p>매년 <strong>2~10월 매달 1일 18:00</strong>에 실행하여
+ * <strong>전월(1~9월)</strong> 실적을 반영한다. 프로그램 기간은 매년 1~9월이다.
+ *
+ * <ul>
+ *   <li>전월 부서 스킬 CS 만족도 목표 달성 시에만 해당 월 선정 건수가 누적(인증) 반영된다.</li>
+ *   <li>만족도 달성했으나 선정 건이 0이면 인센티브 지급 없음, 등급(누적)만 유지된다.</li>
+ *   <li>실행 시 해당 월 반영 대상 평가대상자 인원을 {@code tb_you_incentive_month_stat}에 기록한다.</li>
+ * </ul>
  *
  * <pre>
- *  실행일       처리 대상
- *  ──────────   ────────
- *  2월 1일  →  1월
- *  3월 1일  →  2월
+ *  실행일(18시)   처리 대상
+ *  ────────────   ────────
+ *  2월 1일    →  1월
+ *  3월 1일    →  2월
  *  ...
- *  10월 1일 →  9월
+ *  10월 1일   →  9월
  * </pre>
  */
 @Slf4j
@@ -31,18 +36,13 @@ public class IncentiveReflectScheduler {
     private final IncentiveReflectService incentiveReflectService;
 
     /**
-     * 매달 1일 자정 실행 (2~10월만).
+     * 매달 1일 18:00 실행 (2~10월만). 전월(1~9월) 반영.
      *
-     * <p>cron 표현식: {@code 0 0 0 1 2-10 *}
-     * <ul>
-     *   <li>초=0, 분=0, 시=0 → 자정</li>
-     *   <li>일=1            → 1일</li>
-     *   <li>월=2-10         → 2월~10월만</li>
-     * </ul>
+     * <p>cron: {@code 0 0 18 1 2-10 ?} — 초·분·시·일·월·요일(무관)
      */
-    @Scheduled(cron = "0 0 0 1 2-10 *")
+    @Scheduled(cron = "0 0 18 1 2-10 ?")
     public void runMonthlyReflect() {
-        // 실행 당일(1일)에서 하루 빼면 전달 마지막 날 → 연·월 추출
+        // 1일 실행 시 전일 = 전월 말일 → 반영 대상 연·월
         LocalDate prevMonthDay = LocalDate.now().minusDays(1);
         int year  = prevMonthDay.getYear();
         int month = prevMonthDay.getMonthValue();

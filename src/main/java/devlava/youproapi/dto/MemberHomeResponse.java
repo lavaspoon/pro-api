@@ -3,6 +3,8 @@ package devlava.youproapi.dto;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.util.List;
+
 @Getter
 @Builder
 public class MemberHomeResponse {
@@ -13,8 +15,20 @@ public class MemberHomeResponse {
     /** 소속 팀 연간 인당 평균 선정 건수 */
     private double teamAvgSelected;
 
-    /** 내 연간 누적 선정 건수 (CS 만족도 달성 월 선정건만 합산) */
+    /** 내 연간 누적 인증 건수 — 만족도 달성 월의 선정 건만 스케줄러 반영 합산 */
     private long myTotalSelected;
+
+    /**
+     * 화면에 표시하는 반영 누적 건수.
+     * {@code tb_you_incentive_reflect} 에서 해당 연도 중 {@code reflect_month} 가 가장 큰(가장 최근 반영) 행의
+     * {@code cumulative_count} 값이다. 반영 이력이 없으면 0.
+     */
+    private long yearReflectCumulativeCount;
+
+    /**
+     * 1~9월 프로그램 기간 월별 반영 요약(행 없음이면 해당 월 값은 null).
+     */
+    private List<ReflectMonthRow> reflectMonthsJanSep;
 
     /** 이번 달 선정 건수 (아직 스케줄러 반영 전 실시간) */
     private long monthlySelected;
@@ -38,9 +52,24 @@ public class MemberHomeResponse {
      */
     private Boolean currentMonthCsTargetMet;
 
+    /** 구성원 부서 스킬명 — 만족도 목표 매칭 기준. 없으면 null */
+    private String deptSkillName;
+
+    /** 이번 달 만족도 접수 건수 (DB에서 useYn='Y' 만) */
+    private Long csReceivedUseY;
+
+    /** 이번 달 긍정 건수 (동일 조건의 접수 중 satisfiedYn='Y') */
+    private Long csSatisfiedUseY;
+
+    /** 부서 스킬 월간 만족도 목표 % */
+    private Double csSkillTargetPercent;
+
+    /** 이번 달 실제 만족도 % (표시용, 소수 1자리) */
+    private Double csActualPercent;
+
     /**
-     * 올해 지급 예정 금액 합계 (월별 등급 × 단가 누계).
-     * 스케줄러가 처리한 월만 포함되며, 아직 미처리된 이번 달은 제외.
+     * 올해 스케줄러가 확정 반영한 월의 지급액 합계.
+     * 반영 건수가 0인 월(미달성·달성+선정 0건)은 0원으로 집계된다.
      */
     private long totalReflectedWon;
 
@@ -70,6 +99,17 @@ public class MemberHomeResponse {
 
     /** 순위 산정 대상 평가대상자 총 인원 */
     private Integer individualRankTotal;
+
+    @Getter
+    @Builder
+    public static class ReflectMonthRow {
+        /** 1~9 */
+        private int month;
+        /** 반영 행이 없으면 null. 있으면 {@code cs_target_met} — 달성 여부 */
+        private Boolean csTargetMet;
+        /** 반영 행이 없으면 null. 있으면 {@code selected_count_raw} */
+        private Integer selectedCountRaw;
+    }
 
     @Getter
     @Builder

@@ -4,11 +4,14 @@ import devlava.youproapi.domain.TbCsSatisfactionRecord;
 import devlava.youproapi.domain.TbCsSatisfactionSkillTarget;
 import devlava.youproapi.domain.TbLmsDept;
 import devlava.youproapi.domain.TbLmsMember;
+import devlava.youproapi.domain.TbYouIncentiveMonthStat;
 import devlava.youproapi.domain.TbYouIncentiveReflect;
+import devlava.youproapi.dto.MemberHomeResponse;
 import devlava.youproapi.repository.TbCsSatisfactionRecordRepository;
 import devlava.youproapi.repository.TbCsSatisfactionSkillTargetRepository;
 import devlava.youproapi.repository.TbLmsDeptRepository;
 import devlava.youproapi.repository.TbLmsMemberRepository;
+import devlava.youproapi.repository.TbYouIncentiveMonthStatRepository;
 import devlava.youproapi.repository.TbYouIncentiveReflectRepository;
 import devlava.youproapi.repository.TbYouProCaseRepository;
 import lombok.RequiredArgsConstructor;
@@ -26,13 +29,14 @@ import java.util.stream.Collectors;
  * YOU PRO 인센티브 반영 서비스.
  *
  * <p>이벤트 기간: 매년 1~9월.
- * 스케줄러({@link IncentiveReflectScheduler})가 2~10월 1일에 전달의 데이터를 처리한다.
+ * 스케줄러({@link IncentiveReflectScheduler})가 2~10월 매달 1일 18시에 전월 데이터를 처리한다.
  *
  * <h3>반영 기준</h3>
  * <ol>
  *   <li>구성원 소속 부서({@code TbLmsDept.skill})의 해당 월 CS 만족도 목표({@code TbCsSatisfactionSkillTarget})를
  *       달성한 경우 → 해당 월 선정 건수를 누적 실적에 반영.</li>
- *   <li>목표 미달성인 경우 → 해당 월 선정 건수를 반영하지 않음.</li>
+ *   <li>목표 미달성인 경우 → 해당 월 선정 건수를 반영하지 않음, 해당 월 지급액 0.</li>
+ *   <li>목표 달성이나 선정 건이 0건인 경우 → 누적 증가 없음·해당 월 지급액 0 (등급 유지).</li>
  *   <li>스킬 또는 목표가 미설정된 경우 → 게이트 없이 반영(선정 건수 그대로 반영).</li>
  *   <li>해당 월 CS 접수 건수가 0인 경우 → 목표 미달성으로 간주.</li>
  * </ol>
@@ -59,7 +63,8 @@ public class IncentiveReflectService {
     private final TbCsSatisfactionRecordRepository   recordRepository;
     private final TbCsSatisfactionSkillTargetRepository skillTargetRepository;
     private final TbYouProCaseRepository             caseRepository;
-    private final TbYouIncentiveReflectRepository    reflectRepository;
+    private final TbYouIncentiveReflectRepository     reflectRepository;
+    private final TbYouIncentiveMonthStatRepository   monthStatRepository;
 
     // ────────────────────────────────────────────────────────────────
     // 외부 조회 API (MemberService에서 사용)
@@ -68,6 +73,48 @@ public class IncentiveReflectService {
     /** 해당 연도 누적 반영 건수 합계 */
     public long sumReflectedForYear(String skid, int year) {
         return reflectRepository.sumReflectedCountForYear(skid, year);
+    }
+
+    /**
+     * 해당 연도 가장 최근 반영 월({@code reflect_month} 최대) 행의 {@code cumulative_count}.
+     * 행이 없으면 0. (월별 {@code reflected_count} 의 연간 합과 일치하도록 스케줄러가 유지한다.)
+     */
+    public long latestCumulativeCountForYear(String skid, int year) {
+        return reflectRepository
+                .findFirstBySkidAndReflectYearOrderByReflectMonthDesc(skid, year)
+                .map(TbYouIncentiveReflect::getCumulativeCount)
+                .map(Integer::longValue)
+                .orElse(0L);
+    }
+
+    /**
+     * 해당 연도 1~9월 각각에 대해 {@code tb_you_incentive_reflect} 행이 있으면
+     * {@code cs_target_met}, {@code selected_count_raw} 를 채우고, 스케줄 미처리 월은 null.
+     */
+    public List<MemberHomeResponse.ReflectMonthRow> reflectMonthsJanSep(String skid, int year) {
+        List<TbYouIncentiveReflect> rows =
+                reflectRepository.findBySkidAndReflectYearOrderByReflectMonth(skid, year);
+        Map<Integer, TbYouIncentiveReflect> byMonth = rows.stream()
+                .collect(Collectors.toMap(TbYouIncentiveReflect::getReflectMonth, r -> r, (a, b) -> b));
+        List<MemberHomeResponse.ReflectMonthRow> out = new ArrayList<>(9);
+        for (int m = 1; m <= 9; m++) {
+            TbYouIncentiveReflect r = byMonth.get(m);
+            if (r == null) {
+                out.add(MemberHomeResponse.ReflectMonthRow.builder()
+                        .month(m)
+                        .csTargetMet(null)
+                        .selectedCountRaw(null)
+                        .build());
+            } else {
+                boolean met = "Y".equalsIgnoreCase(r.getCsTargetMet());
+                out.add(MemberHomeResponse.ReflectMonthRow.builder()
+                        .month(m)
+                        .csTargetMet(met)
+                        .selectedCountRaw(r.getSelectedCountRaw())
+                        .build());
+            }
+        }
+        return out;
     }
 
     /** 해당 연도 지급 예정 금액 합계 */
@@ -136,6 +183,9 @@ public class IncentiveReflectService {
             log.info("[IncentiveReflect] 처리 대상 구성원 없음");
             return;
         }
+
+        saveEvalTargetSnapshot(year, month, targets.size());
+
         List<String> skids = targets.stream().map(TbLmsMember::getSkid).collect(Collectors.toList());
 
         // ── 2. 부서 정보 일괄 로드 ────────────────────────────────────
@@ -174,6 +224,20 @@ public class IncentiveReflectService {
         }
 
         log.info("[IncentiveReflect] 완료 — {}년 {}월 | 처리={}, 오류={}", year, month, processed, skipped);
+    }
+
+    /**
+     * 해당 연·월 반영 실행 시점의 YOU 평가대상자 인원을 저장한다 (통계용).
+     */
+    private void saveEvalTargetSnapshot(int year, int month, int evalTargetCount) {
+        TbYouIncentiveMonthStat row = TbYouIncentiveMonthStat.builder()
+                .reflectYear(year)
+                .reflectMonth(month)
+                .evalTargetCount(evalTargetCount)
+                .processedAt(Instant.now())
+                .build();
+        monthStatRepository.save(row);
+        log.info("[IncentiveReflect] 평가대상자 스냅샷 — {}년 {}월 | {}명", year, month, evalTargetCount);
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -222,8 +286,8 @@ public class IncentiveReflectService {
         int prevCumulative = reflectRepository.sumReflectedCountBeforeMonth(skid, year, month);
         int cumulativeCount = prevCumulative + reflectedCount;
 
-        // ── (g) 등급 및 이달 지급액 산출 ─────────────────────────────
-        int monthlyPayoutWon = calculateMonthlyPayout(cumulativeCount);
+        // ── (g) 이달 지급액 — 반영 건수가 1건 이상일 때만 등급 단가 적용 (달성+선정 0건이면 0원)
+        int monthlyPayoutWon = reflectedCount > 0 ? calculateMonthlyPayout(cumulativeCount) : 0;
 
         // ── (h) Upsert ─────────────────────────────────────────────
         TbYouIncentiveReflect reflect = reflectRepository
@@ -268,7 +332,8 @@ public class IncentiveReflectService {
     }
 
     /**
-     * 누적 건수 기준 이달 지급 예정 금액을 반환한다.
+     * 누적 인증 건수 기준 등급 단가(해당 월 1회분).
+     * 월별 행에서는 {@code reflectedCount > 0} 일 때만 이 값을 저장한다.
      *
      * <ul>
      *   <li>1~9건  (YOU 망주)    → 30,000원</li>

@@ -39,7 +39,7 @@ public class TbCsSatisfactionRecord {
     private String consultType3;
 
     @Column(name = "\"불만족유형\"")
-    private Integer dissatisfactionType;
+    private String dissatisfactionType;
 
     @Column(name = "\"스킬\"", length = 200)
     private String skill;
@@ -64,6 +64,10 @@ public class TbCsSatisfactionRecord {
 
     @Column(name = "\"업로드일자\"", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
+
+
+    @Column(name = "\"평가시간\"", length = 1)
+    private String useYn;
 
     public String getConsultTime() {
         if (evalDate == null) {

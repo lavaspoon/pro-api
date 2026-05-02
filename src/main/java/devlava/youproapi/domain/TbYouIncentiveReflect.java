@@ -8,12 +8,13 @@ import java.time.Instant;
 /**
  * 인센티브 반영 이력 — {@code tb_you_incentive_reflect}
  *
- * <p>스케줄러가 매달 1일(2~10월) 전달 CS 만족도 달성 여부를 확인하고
+ * <p>스케줄러가 매달 1일 18시(2~10월) 전월 CS 만족도 달성 여부를 확인하고
  * 선정건수 반영 결과를 기록한다.
  *
  * <ul>
  *   <li>CS 만족도 목표 달성 시 : {@code reflectedCount} = {@code selectedCountRaw}</li>
- *   <li>CS 만족도 목표 미달성 시: {@code reflectedCount} = 0</li>
+ *   <li>CS 만족도 목표 미달성 시: {@code reflectedCount} = 0, 지급 0</li>
+ *   <li>달성했으나 선정 0건: {@code reflectedCount} = 0, 누적 불변, 해당 월 지급 0</li>
  * </ul>
  */
 @Getter
@@ -73,7 +74,7 @@ public class TbYouIncentiveReflect {
     @Column(name = "cumulative_count", nullable = false)
     private Integer cumulativeCount;
 
-    /** 누적 건수 기준 등급에 따른 이달 지급 예정 금액(원) */
+    /** 누적 건수 기준 등급에 따른 해당 월 지급액 — 반영 건수가 1건 이상일 때만 부여 */
     @Column(name = "monthly_payout_won", nullable = false)
     private Integer monthlyPayoutWon;
 

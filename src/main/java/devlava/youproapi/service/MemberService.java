@@ -2,6 +2,7 @@ package devlava.youproapi.service;
 
 import devlava.youproapi.domain.TbLmsMember;
 import devlava.youproapi.dto.MemberHomeResponse;
+import devlava.youproapi.dto.MemberSatisfactionResponse;
 import devlava.youproapi.repository.TbLmsMemberRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -37,8 +38,9 @@ public class MemberService {
         int year = now.getYear();
         int month = now.getMonthValue();
 
-        // CS 만족도 달성 월만 집계된 연간 누적 반영 건수 (공식 실적)
+        // CS 만족도 달성 월만 집계된 연간 누적 반영 건수 (공식 실적, 월별 reflected 합과 동일)
         long myTotalSelected    = incentiveReflectService.sumReflectedForYear(skid, year);
+        long yearReflectCumulative = incentiveReflectService.latestCumulativeCountForYear(skid, year);
         // 올해 월별 등급에 따른 누계 지급 예정 금액
         long totalReflectedWon  = incentiveReflectService.sumPayoutForYear(skid, year);
         // 이번 달 실시간 선정 건수 (아직 스케줄러 미처리)
@@ -53,10 +55,7 @@ public class MemberService {
         EvalCenterRank evalRank = computeEvalCenterTeamRank(member, year);
         IndividualRank indRank  = computeIndividualRankFromReflect(skid, year);
 
-        // 이달 만족도 달성 여부 — CsSatisfactionService.getMemberSatisfaction() 의 monthlyTargetMet 그대로 사용
-        Boolean currentMonthCsTargetMet = csSatisfactionService
-                .getMemberSatisfaction(skid, year, month)
-                .getMonthlyTargetMet();
+        MemberSatisfactionResponse sat = csSatisfactionService.getMemberSatisfaction(skid, year, month);
 
         return MemberHomeResponse.builder()
                 .team(MemberHomeResponse.TeamInfo.builder()
@@ -65,13 +64,20 @@ public class MemberService {
                         .build())
                 .teamAvgSelected(teamAvgSelected)
                 .myTotalSelected(myTotalSelected)
+                .yearReflectCumulativeCount(yearReflectCumulative)
+                .reflectMonthsJanSep(incentiveReflectService.reflectMonthsJanSep(skid, year))
                 .monthlySelected(monthlySelected)
                 .monthlyLimit(MONTHLY_LIMIT)
                 .pendingCount(pendingCount)
                 .annualLimit(ANNUAL_LIMIT)
                 .totalReflectedWon(totalReflectedWon)
                 .topSelected(topSelected)
-                .currentMonthCsTargetMet(currentMonthCsTargetMet)
+                .currentMonthCsTargetMet(sat.getMonthlyTargetMet())
+                .deptSkillName(sat.getSkill())
+                .csReceivedUseY(sat.getReceivedCount())
+                .csSatisfiedUseY(sat.getSatisfiedCount())
+                .csSkillTargetPercent(sat.getMonthlyTargetPct())
+                .csActualPercent(sat.getMonthlyActualPct())
                 .evalCenterInScope(evalRank.inScope)
                 .evalCenterTeamRank(evalRank.rank)
                 .evalCenterTeamTotal(evalRank.totalTeams)

@@ -57,6 +57,29 @@ public class CsSatisfactionService {
         return m != null && EVAL_TARGET_YES.equalsIgnoreCase(m.getYouYn());
     }
 
+    /**
+     * 불만족유형 컬럼: {@code null}, 빈 문자열, 또는 {@code 1}~{@code 5}에 대응하는 문자열.
+     * 그 외 값은 집계·카운트에서 제외합니다.
+     */
+    private static Integer normalizedDissatisfactionTypeOrdinal(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String s = raw.trim();
+        if (s.isEmpty()) {
+            return null;
+        }
+        try {
+            int v = Integer.parseInt(s);
+            if (v >= 1 && v <= 5) {
+                return v;
+            }
+        } catch (NumberFormatException ignored) {
+            // ignore
+        }
+        return null;
+    }
+
     private static String resolveDeptSkill(TbLmsMember member, Map<Integer, TbLmsDept> deptById) {
         if (member == null || member.getDeptIdx() == null || deptById == null || deptById.isEmpty()) {
             return null;
@@ -89,8 +112,8 @@ public class CsSatisfactionService {
         }
         LocalDate from = LocalDate.of(year, month, 1);
         LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
-        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetweenAndSkid(
-                atStartOfDay(from), atEndOfDay(to), skid);
+        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetweenAndSkidAndUseYn(
+                atStartOfDay(from), atEndOfDay(to), skid, "Y");
         long fiveMajor = 0;
         long gen5060 = 0;
         for (TbCsSatisfactionRecord r : records) {
@@ -118,8 +141,8 @@ public class CsSatisfactionService {
         LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
         LocalDate monthKey = firstDayOfMonth(year, month);
 
-        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetweenAndSkid(
-                atStartOfDay(from), atEndOfDay(to), skid);
+        List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetweenAndSkidAndUseYn(
+                atStartOfDay(from), atEndOfDay(to), skid, "Y");
         long received = records.size();
         long sat = records.stream().filter(r -> "Y".equalsIgnoreCase(r.getSatisfiedYn())).count();
         long unsat = records.stream().filter(r -> "N".equalsIgnoreCase(r.getSatisfiedYn())).count();
@@ -143,15 +166,16 @@ public class CsSatisfactionService {
 
         Double actualPct = received > 0 ? round1(100.0 * sat / received) : null;
         Double achievement = null;
-        Boolean met = null;
+        Boolean met = computeMonthlySkillTargetMet(received, sat, targetPct);
         if (actualPct != null && targetPct != null && targetPct > 0) {
             achievement = round1(100.0 * actualPct / targetPct);
-            met = achievement >= 100.0;
         }
 
         Map<Integer, Long> dissCountByType = records.stream()
-                .filter(r -> r.getDissatisfactionType() != null)
-                .collect(Collectors.groupingBy(TbCsSatisfactionRecord::getDissatisfactionType, Collectors.counting()));
+                .map(TbCsSatisfactionRecord::getDissatisfactionType)
+                .map(CsSatisfactionService::normalizedDissatisfactionTypeOrdinal)
+                .filter(Objects::nonNull)
+                .collect(Collectors.groupingBy(i -> i, Collectors.counting()));
         List<MemberSatisfactionResponse.UnsatisfiedCategory> unsatisfiedCategories = List.of(
                 buildUnsatisfiedCategory(1, "서비스 지식부족", dissCountByType),
                 buildUnsatisfiedCategory(2, "성의 없는 태도", dissCountByType),
@@ -192,6 +216,22 @@ public class CsSatisfactionService {
                 .build();
     }
 
+    /**
+     * 부서 스킬 월간 목표 대비 달성 여부.
+     * 인센티브 반영({@link IncentiveReflectService})과 동일하게 실제 만족도%와 목표%를 비교한다.
+     * 목표 미설정 또는 0 이하이면 {@code null}, 유효 목표가 있는데 접수 건이 0이면 {@code false}.
+     */
+    private static Boolean computeMonthlySkillTargetMet(long received, long satisfied, Double targetPct) {
+        if (targetPct == null || targetPct <= 0) {
+            return null;
+        }
+        if (received <= 0) {
+            return false;
+        }
+        double actualPct = 100.0 * satisfied / received;
+        return actualPct >= targetPct;
+    }
+
     private static MemberSatisfactionResponse.UnsatisfiedCategory buildUnsatisfiedCategory(
             int type, String label, Map<Integer, Long> countMap) {
         return MemberSatisfactionResponse.UnsatisfiedCategory.builder()
@@ -219,7 +259,7 @@ public class CsSatisfactionService {
         LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
         List<TbCsSatisfactionRecord> rows = recordRepository
                 .findByEvalDateBetweenAndSkidAndDissatisfactionTypeOrderByEvalDateDescIdDesc(
-                        atStartOfDay(from), atEndOfDay(to), skid, dissatisfactionType);
+                        atStartOfDay(from), atEndOfDay(to), skid, Integer.toString(dissatisfactionType));
         List<MemberCsUnsatisfiedRecordItem> items = rows.stream()
                 .map(this::toUnsatisfiedItem)
                 .collect(Collectors.toList());

@@ -21,6 +21,13 @@ public interface TbCsSatisfactionRecordRepository extends JpaRepository<TbCsSati
             LocalDateTime to,
             String skid);
 
+    /** 구성원 당월 만족도 집계 — {@code useYn='Y'} 인 레코드만 포함 */
+    List<TbCsSatisfactionRecord> findByEvalDateBetweenAndSkidAndUseYn(
+            LocalDateTime from,
+            LocalDateTime to,
+            String skid,
+            String useYn);
+
     List<TbCsSatisfactionRecord> findByEvalDateBetweenAndSkidOrderByEvalDateDescIdDesc(
             LocalDateTime from,
             LocalDateTime to,
@@ -30,6 +37,6 @@ public interface TbCsSatisfactionRecordRepository extends JpaRepository<TbCsSati
             LocalDateTime from,
             LocalDateTime to,
             String skid,
-            Integer dissatisfactionType);
+            String dissatisfactionType);
 
 }

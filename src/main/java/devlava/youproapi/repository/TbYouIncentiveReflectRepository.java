@@ -16,6 +16,13 @@ public interface TbYouIncentiveReflectRepository extends JpaRepository<TbYouInce
     List<TbYouIncentiveReflect> findBySkidAndReflectYearOrderByReflectMonth(
             String skid, Integer reflectYear);
 
+    /**
+     * 해당 연도에서 {@code reflect_month} 가 가장 큰 행(가장 최근 인센티브 반영 월) 1건.
+     * 그 행의 {@link TbYouIncentiveReflect#getCumulativeCount()} 가 화면 누적 건수 소스다.
+     */
+    Optional<TbYouIncentiveReflect> findFirstBySkidAndReflectYearOrderByReflectMonthDesc(
+            String skid, Integer reflectYear);
+
     /** 특정 연도·월 이전의 누적 반영 건수 합계 (해당 월 미포함) */
     @Query("""
            SELECT COALESCE(SUM(r.reflectedCount), 0)
