@@ -3,6 +3,7 @@ package devlava.youproapi.service;
 import devlava.youproapi.config.YouproAdminProperties;
 import devlava.youproapi.domain.TbLmsDept;
 import devlava.youproapi.domain.TbLmsMember;
+import devlava.youproapi.domain.TbYouIncentiveMonthStat;
 import devlava.youproapi.domain.TbYouProCase;
 import devlava.youproapi.dto.AdminDashboardResponse;
 import devlava.youproapi.dto.AdminDashboardResponse.MemberSummary;
@@ -17,6 +18,7 @@ import devlava.youproapi.dto.CaseResponse;
 import devlava.youproapi.dto.TeamDetailResponse;
 import devlava.youproapi.repository.TbLmsDeptRepository;
 import devlava.youproapi.repository.TbLmsMemberRepository;
+import devlava.youproapi.repository.TbYouIncentiveMonthStatRepository;
 import devlava.youproapi.support.AdminDeptScope;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -43,6 +45,7 @@ public class AdminService {
     private final YouproAdminProperties adminProperties;
     private final AdminDeptScopeResolver deptScopeResolver;
     private final CaseService caseService;
+    private final TbYouIncentiveMonthStatRepository incentiveMonthStatRepository;
 
     // ─── 관리자 대시보드 ─────────────────────────────────────────────────────
 
@@ -402,16 +405,14 @@ public class AdminService {
 
         long monthlySubmitted = submittedByMonth.getOrDefault(month, 0L);
         long monthlySelected = selectedByMonth.getOrDefault(month, 0L);
-        // 인증율 = 해당 월 접수(call_date) 대비 선정(selected) — 구성원 홈 인증률과 동일 정의
-        Double monthlyCertificationRate =
-                monthlySubmitted == 0
-                        ? null
-                        : Math.round(1000.0 * monthlySelected / monthlySubmitted) / 10.0;
 
         Map<String, Long> submittedYearBySkid = caseService.mapSubmittedBySkidForYear(allSkids, year);
         Map<String, Long> submittedMonthBySkid = caseService.mapSubmittedBySkidForYearMonth(allSkids, year, month);
         Map<String, Long> selectedYearMap = stats.getSelectedBySkidYear();
         Map<String, Long> selectedMonthMap = stats.getSelectedBySkidYearMonth();
+        // 인증율(%) = 해당 월 call_date 기준 1건 이상 선정된 평가대상자 수 ÷ (1~9월 스케줄 스냅샷 평가대상자 수 산술평균)
+        Double monthlyCertificationRate =
+                computeMonthlyCertificationRateByAvgEvalHeadcount(year, scopedMembers, selectedMonthMap);
         Map<String, Long> pendingMap = stats.getPendingBySkid();
         Map<String, Long> judgedMap = stats.getJudgedBySkidYear();
 
@@ -624,6 +625,35 @@ public class AdminService {
                         .build())
                 .members(memberDetails)
                 .build();
+    }
+
+    /**
+     * 전체 센터 KPI 「이번 달 인증율」: 스코프 내 평가대상자 중 이번 달 1건 이상 선정된 인원 ÷
+     * {@code tb_you_incentive_month_stat} 에서 해당 연도 1~9월에 기록된 월별 평가대상자 수의 산술평균.
+     * 스냅샷이 없으면 null.
+     */
+    private Double computeMonthlyCertificationRateByAvgEvalHeadcount(
+            int year,
+            List<TbLmsMember> scopedMembers,
+            Map<String, Long> selectedMonthMap) {
+        List<TbYouIncentiveMonthStat> snapshots =
+                incentiveMonthStatRepository.findByReflectYearAndReflectMonthBetweenOrderByReflectMonth(
+                        year, 1, 9);
+        if (snapshots.isEmpty()) {
+            return null;
+        }
+        double avgHead = snapshots.stream()
+                .mapToInt(TbYouIncentiveMonthStat::getEvalTargetCount)
+                .average()
+                .orElse(0.0);
+        if (avgHead <= 0.0) {
+            return null;
+        }
+        long certifiedPeople = scopedMembers.stream()
+                .filter(AdminService::isEvalTargetMember)
+                .filter(m -> selectedMonthMap.getOrDefault(m.getSkid(), 0L) >= 1)
+                .count();
+        return Math.round(1000.0 * certifiedPeople / avgHead) / 10.0;
     }
 
     // ─── 관리자 사례 (스코프 검증) ───────────────────────────────────────────

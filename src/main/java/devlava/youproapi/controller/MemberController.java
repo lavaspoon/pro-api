@@ -3,6 +3,7 @@ package devlava.youproapi.controller;
 import devlava.youproapi.dto.CaseResponse;
 import devlava.youproapi.dto.CaseSubmitRequest;
 import devlava.youproapi.dto.MemberCsFocusTasksResponse;
+import devlava.youproapi.dto.MemberCsInsightPromptMentsResponse;
 import devlava.youproapi.dto.MemberCsUnsatisfiedDetailsResponse;
 import devlava.youproapi.dto.MemberHomeResponse;
 import devlava.youproapi.dto.MemberSatisfactionResponse;
@@ -83,6 +84,18 @@ public class MemberController {
             @RequestParam int year,
             @RequestParam int month) {
         return ResponseEntity.ok(csSatisfactionService.getMemberFocusTaskCounts(skid, year, month));
+    }
+
+    /**
+     * AI 인사이트 프롬프트용 멘트 — 평가시간 적용 건만, 해당 월 중 상담일이 가장 최근인 날짜 행만
+     * GET /api/member/satisfaction/ai-insight-ments?skid=&year=&month=
+     */
+    @GetMapping("/satisfaction/ai-insight-ments")
+    public ResponseEntity<MemberCsInsightPromptMentsResponse> getMemberInsightPromptMents(
+            @RequestParam String skid,
+            @RequestParam int year,
+            @RequestParam int month) {
+        return ResponseEntity.ok(csSatisfactionService.getMemberInsightPromptMents(skid, year, month));
     }
 
     /**

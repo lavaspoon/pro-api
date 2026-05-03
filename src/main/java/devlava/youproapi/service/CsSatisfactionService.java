@@ -20,6 +20,7 @@ import devlava.youproapi.dto.CsSatisfactionSummaryResponse;
 import devlava.youproapi.dto.CsSatisfactionTargetsUnifiedRequest;
 import devlava.youproapi.dto.CsSatisfactionTargetsUnifiedResponse;
 import devlava.youproapi.dto.MemberCsFocusTasksResponse;
+import devlava.youproapi.dto.MemberCsInsightPromptMentsResponse;
 import devlava.youproapi.dto.MemberCsUnsatisfiedDetailsResponse;
 import devlava.youproapi.dto.MemberCsUnsatisfiedRecordItem;
 import devlava.youproapi.dto.MemberSatisfactionResponse;
@@ -39,6 +40,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -146,6 +148,13 @@ public class CsSatisfactionService {
         long received = records.size();
         long sat = records.stream().filter(r -> "Y".equalsIgnoreCase(r.getSatisfiedYn())).count();
         long unsat = records.stream().filter(r -> "N".equalsIgnoreCase(r.getSatisfiedYn())).count();
+        long fiveMajorY = records.stream()
+                .filter(r -> "Y".equalsIgnoreCase(r.getFiveMajorCitiesYn()))
+                .count();
+        long gen5060Y = records.stream().filter(r -> "Y".equalsIgnoreCase(r.getGen5060Yn())).count();
+        long problemResolvedY = records.stream()
+                .filter(r -> "Y".equalsIgnoreCase(r.getProblemResolvedYn()))
+                .count();
 
         TbLmsMember member = memberRepository.findById(skid).orElse(null);
         Double targetPct = null;
@@ -165,6 +174,11 @@ public class CsSatisfactionService {
         }
 
         Double actualPct = received > 0 ? round1(100.0 * sat / received) : null;
+        Double unsatisfiedPct = received > 0 ? round1(100.0 * unsat / received) : null;
+        Double fiveMajorCitiesPct = received > 0 ? round1(100.0 * fiveMajorY / received) : null;
+        Double gen5060Pct = received > 0 ? round1(100.0 * gen5060Y / received) : null;
+        Double problemResolvedPct =
+                received > 0 ? round1(100.0 * problemResolvedY / received) : null;
         Double achievement = null;
         Boolean met = computeMonthlySkillTargetMet(received, sat, targetPct);
         if (actualPct != null && targetPct != null && targetPct > 0) {
@@ -211,6 +225,10 @@ public class CsSatisfactionService {
                 .monthlyActualPct(actualPct)
                 .monthlyAchievementRate(achievement)
                 .monthlyTargetMet(met)
+                .unsatisfiedPct(unsatisfiedPct)
+                .fiveMajorCitiesPct(fiveMajorCitiesPct)
+                .gen5060Pct(gen5060Pct)
+                .problemResolvedPct(problemResolvedPct)
                 .unsatisfiedCategories(unsatisfiedCategories)
                 .dailyTrend(dailyTrend)
                 .build();
@@ -320,6 +338,77 @@ public class CsSatisfactionService {
                 .totalCount(records.size())
                 .months(months)
                 .build();
+    }
+
+    /**
+     * AI 인사이트 프롬프트용 Good/Bad 멘트.
+     * {@code tb_you_cs} 중 평가시간({@link TbCsSatisfactionRecord#getUseYn()})이 {@code Y}이고
+     * 상담일시가 해당 연·월인 행만 풀로 두고, 그중 상담일시({@code evalDate})의 날짜가 가장 최근인 날에
+     * 해당하는 행만 포함합니다. 상담일시가 없는 행만 있으면 풀 전체를 사용합니다.
+     */
+    public MemberCsInsightPromptMentsResponse getMemberInsightPromptMents(String skid, int year, int month) {
+        if (skid == null || skid.isBlank()) {
+            throw new IllegalArgumentException("skid가 필요합니다.");
+        }
+        if (month < 1 || month > 12) {
+            throw new IllegalArgumentException("month는 1~12입니다.");
+        }
+        LocalDate from = LocalDate.of(year, month, 1);
+        LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
+        String normalizedSkid = skid.trim();
+
+        List<TbCsSatisfactionRecord> pool = recordRepository.findByEvalDateBetweenAndSkidAndUseYn(
+                atStartOfDay(from), atEndOfDay(to), normalizedSkid, "Y");
+
+        if (pool.isEmpty()) {
+            return MemberCsInsightPromptMentsResponse.builder()
+                    .goodMents(List.of())
+                    .badMents(List.of())
+                    .latestConsultDate(null)
+                    .build();
+        }
+
+        Optional<LocalDate> maxConsultDay = pool.stream()
+                .map(TbCsSatisfactionRecord::getEvalDate)
+                .filter(Objects::nonNull)
+                .map(LocalDateTime::toLocalDate)
+                .max(Comparator.naturalOrder());
+
+        List<TbCsSatisfactionRecord> slice;
+        String latestConsultDateStr = null;
+        if (maxConsultDay.isPresent()) {
+            LocalDate d = maxConsultDay.get();
+            latestConsultDateStr = d.format(DateTimeFormatter.ISO_LOCAL_DATE);
+            slice = pool.stream()
+                    .filter(r -> r.getEvalDate() != null && r.getEvalDate().toLocalDate().equals(d))
+                    .collect(Collectors.toList());
+        } else {
+            slice = pool;
+        }
+
+        return MemberCsInsightPromptMentsResponse.builder()
+                .goodMents(collectDistinctComments(slice, true))
+                .badMents(collectDistinctComments(slice, false))
+                .latestConsultDate(latestConsultDateStr)
+                .build();
+    }
+
+    private static List<String> collectDistinctComments(List<TbCsSatisfactionRecord> rows, boolean goodColumn) {
+        Set<String> seen = new LinkedHashSet<>();
+        List<String> out = new ArrayList<>();
+        for (TbCsSatisfactionRecord r : rows) {
+            String raw = goodColumn ? r.getGoodMent() : r.getBadMent();
+            if (raw == null) {
+                continue;
+            }
+            String t = raw.trim();
+            if (t.isEmpty() || seen.contains(t)) {
+                continue;
+            }
+            seen.add(t);
+            out.add(t);
+        }
+        return out;
     }
 
     private MemberCsUnsatisfiedRecordItem toUnsatisfiedItem(TbCsSatisfactionRecord r) {

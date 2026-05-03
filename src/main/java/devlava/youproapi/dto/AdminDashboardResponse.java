@@ -26,8 +26,9 @@ public class AdminDashboardResponse {
     /** 해당 연·월 선정 건수 — {@code call_date} 연·월, {@code status = selected} */
     private long monthlySelected;
     /**
-     * 해당 연·월 인증율(%) — {@code call_date}가 해당 월인 접수 대비 {@code status = selected}(선정·인증) 비율.
-     * 해당 월 접수가 0이면 null.
+     * 해당 연·월 인증율(%) — 스코프 내 평가대상자 중 이번 달(call_date) 선정 1건 이상 인원 ÷
+     * {@code tb_you_incentive_month_stat} 해당 연도 1~9월 {@code eval_target_count} 산술평균.
+     * 스냅샷이 없거나 평균이 0이면 null.
      */
     private Double monthlyCertificationRate;
     /** 해당 연도 1~12월 신청·선정 건수 (차트용) */
