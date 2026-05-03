@@ -57,7 +57,7 @@ public class MemberController {
     }
 
     /**
-     * 사례 상세 (STT 대화 포함)
+     * 사례 상세
      * GET /api/member/cases/{caseId}
      */
     @GetMapping("/cases/{caseId}")

@@ -6,7 +6,6 @@ import devlava.youproapi.dto.AdminScopedCaseStats;
 import devlava.youproapi.dto.CaseJudgeRequest;
 import devlava.youproapi.dto.CaseResponse;
 import devlava.youproapi.dto.CaseSubmitRequest;
-import devlava.youproapi.dto.SttResultDto;
 import devlava.youproapi.repository.TbLmsMemberRepository;
 import devlava.youproapi.repository.TbYouProCaseRepository;
 import lombok.RequiredArgsConstructor;
@@ -65,7 +64,6 @@ public class CaseService {
 
     private final TbYouProCaseRepository caseRepository;
     private final TbLmsMemberRepository memberRepository;
-    private final SttService sttService;
 
     // ─── 구성원 ────────────────────────────────────────────────────────────
 
@@ -77,17 +75,11 @@ public class CaseService {
                 .collect(Collectors.toList());
     }
 
-    /** 사례 상세 (STT 대화 포함) */
+    /** 사례 상세 */
     public CaseResponse getCaseDetail(Long caseId) {
         TbYouProCase c = findCase(caseId);
         TbLmsMember member = findMember(c.getSkid());
-
-        SttResultDto stt = sttService.findByCaseInfo(c.getCallDate(), c.getSkid());
-        String callDuration = stt.isFound() ? stt.getCallDuration() : null;
-        String fullTranscript = stt.isFound() ? stt.getFullTranscript() : null;
-
-        return CaseResponse.from(c, member.getMbName(), member.getDeptName(),
-                fullTranscript, callDuration);
+        return CaseResponse.from(c, member.getMbName(), member.getDeptName(), null, null);
     }
 
     /** 우수사례 접수 */
@@ -137,7 +129,7 @@ public class CaseService {
                 .collect(Collectors.toList());
     }
 
-    /** 관리자 사례 조회 (STT 포함) */
+    /** 관리자 사례 상세 조회 */
     public CaseResponse getCaseForReview(Long caseId) {
         return getCaseDetail(caseId);
     }

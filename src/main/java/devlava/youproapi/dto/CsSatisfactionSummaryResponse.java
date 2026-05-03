@@ -10,6 +10,14 @@ import java.util.List;
 public class CsSatisfactionSummaryResponse {
 
     private int year;
+    /** 집계 구간 시작일(ISO yyyy-MM-dd). 롤링·월 조회 공통. */
+    private String statFrom;
+    /** 집계 구간 종료일(ISO yyyy-MM-dd). */
+    private String statTo;
+    /** true 이면 statFrom~statTo 가 KST 기준 「당월 1일~전일」(1일이면 전월 전체). */
+    private boolean rollingThroughYesterday;
+    /** 집계 종료일 연도의 연간 목표% (문제해결, 역산 달성률 분모). 없으면 null */
+    private Double problemResolvedAnnualTargetPercent;
     private AdminFilterMetaResponse filterMeta;
     private List<SecondDepthSatisfactionRow> rows;
 
@@ -49,5 +57,15 @@ public class CsSatisfactionSummaryResponse {
         private Long gen5060Count;
         /** 중점추진과제(만족 Y + 문제해결 Y) 건수 */
         private Long problemResolvedCount;
+        /** 5대도시 Y 건수 / 평가건 * 100 */
+        private Double fiveMajorCitiesPct;
+        /** 5060 Y 건수 / 평가건 * 100 */
+        private Double gen5060Pct;
+        /** 문제해결 Y 건수 / 평가건 * 100 */
+        private Double problemResolvedPct;
+        /**
+         * 문제해결 연간 목표 대비 역산 달성률(%): 허용 미달성비(targetGap) 대비 실제 미달성비(actualGap) 비율을 100 기준으로 환산, 상한 100.
+         */
+        private Double problemResolvedInverseAchievementPct;
     }
 }

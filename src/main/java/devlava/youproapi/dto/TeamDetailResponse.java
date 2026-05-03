@@ -31,6 +31,11 @@ public class TeamDetailResponse {
         /** 이번 달 접수 건수 */
         private long monthlySubmitted;
         private long monthlySelected;
+        /**
+         * 해당 연도 {@code tb_you_incentive_reflect} 최신 반영 월의 누적 인증 건수(
+         * {@code cumulative_count}).
+         */
+        private long reflectCumulativeCount;
         private int monthlyLimit;
         private long pendingCount;
         private List<CaseResponse> cases;

@@ -7,6 +7,9 @@ import devlava.youproapi.dto.AdminReviewQueueResponse;
 import devlava.youproapi.dto.CaseJudgeRequest;
 import devlava.youproapi.dto.CaseResponse;
 import devlava.youproapi.dto.CsSatisfactionCenterMonthDetailResponse;
+import devlava.youproapi.dto.CsSatisfactionExcludeLogResponse;
+import devlava.youproapi.dto.CsSatisfactionExcludeTimeRequest;
+import devlava.youproapi.dto.CsSatisfactionExcludeTimeResponse;
 import devlava.youproapi.dto.CsSatisfactionMemberMonthlyRowsResponse;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsRequest;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsResponse;
@@ -15,6 +18,7 @@ import devlava.youproapi.dto.CsSatisfactionMonthlyOverviewResponse;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTrendResponse;
 import devlava.youproapi.dto.CsSatisfactionRankingResponse;
 import devlava.youproapi.dto.CsSatisfactionSummaryResponse;
+import devlava.youproapi.dto.CsSatisfactionTodayHourlyResponse;
 import devlava.youproapi.dto.CsSatisfactionTargetsUnifiedRequest;
 import devlava.youproapi.dto.CsSatisfactionTargetsUnifiedResponse;
 import devlava.youproapi.dto.TargetMemberUploadResponse;
@@ -101,7 +105,7 @@ public class AdminController {
     }
 
     /**
-     * 사례 상세 조회 (STT 대화 포함)
+     * 사례 상세 조회
      * GET /api/admin/cases/{caseId}
      */
     @GetMapping("/cases/{caseId}")
@@ -128,8 +132,10 @@ public class AdminController {
     public ResponseEntity<CsSatisfactionSummaryResponse> csSatisfactionSummary(
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) Integer month,
-            @RequestParam(required = false) Integer secondDepthDeptId) {
-        return ResponseEntity.ok(csSatisfactionService.getSummary(year, month, secondDepthDeptId));
+            @RequestParam(required = false) Integer secondDepthDeptId,
+            @RequestParam(required = false, defaultValue = "false") boolean rollingThroughYesterday) {
+        return ResponseEntity.ok(
+                csSatisfactionService.getSummary(year, month, secondDepthDeptId, rollingThroughYesterday));
     }
 
     /**
@@ -167,6 +173,20 @@ public class AdminController {
     }
 
     /**
+     * CS 만족도 — 금일(09:00~18:59, KST) 시간대별 만족도 스냅샷
+     * GET /api/admin/cs-satisfaction/today-hourly?secondDepthDeptId=&skill=&adminSkid=
+     * <p>{@code secondDepthDeptId} 생략 시 로그인 관리자 소속 센터 기본(미소속이면 전체),
+     * {@code 0}이면 센터 전체. {@code skill} 생략 시 프로필 스킬 기본, 빈 문자열이면 스킬 전체.
+     */
+    @GetMapping("/cs-satisfaction/today-hourly")
+    public ResponseEntity<CsSatisfactionTodayHourlyResponse> csSatisfactionTodayHourly(
+            @RequestParam(required = false) Integer secondDepthDeptId,
+            @RequestParam(required = false) String skill,
+            @RequestParam(required = false) String adminSkid) {
+        return ResponseEntity.ok(csSatisfactionService.getTodayHourly(secondDepthDeptId, skill, adminSkid));
+    }
+
+    /**
      * CS 만족도 — 연간 구성원 랭킹(만족·5대도시·5060·문제해결 각 상위 N명)
      * GET /api/admin/cs-satisfaction/ranking?year=&topN=3
      */
@@ -187,8 +207,20 @@ public class AdminController {
     public ResponseEntity<CsSatisfactionCenterMonthDetailResponse> csSatisfactionCenterMonthDetail(
             @RequestParam int secondDepthDeptId,
             @RequestParam(required = false) Integer year,
-            @RequestParam(required = false) Integer month) {
-        return ResponseEntity.ok(csSatisfactionService.getCenterMonthDetail(secondDepthDeptId, year, month));
+            @RequestParam(required = false) Integer month,
+            @RequestParam(required = false, defaultValue = "false") boolean rollingThroughYesterday) {
+        return ResponseEntity.ok(csSatisfactionService.getCenterMonthDetail(
+                secondDepthDeptId, year, month, rollingThroughYesterday));
+    }
+
+    /**
+     * 평가 제외 적용 이력 (최근 N건)
+     * GET /api/admin/cs-satisfaction/exclude-log?limit=50
+     */
+    @GetMapping("/cs-satisfaction/exclude-log")
+    public ResponseEntity<CsSatisfactionExcludeLogResponse> csSatisfactionExcludeLog(
+            @RequestParam(required = false, defaultValue = "50") int limit) {
+        return ResponseEntity.ok(csSatisfactionService.getExcludeLogRecent(limit));
     }
 
     /**
@@ -201,6 +233,17 @@ public class AdminController {
             @RequestParam(required = false) Integer year) {
         return ResponseEntity.ok(csSatisfactionService.getMemberMonthlyRows(skid, year));
     }
+
+    /**
+     * CS 만족도 — 스킬 + 상담일시 구간(시작·종료 포함) 평가 제외(useYn='N')
+     * POST /api/admin/cs-satisfaction/exclude-time
+     */
+    @PostMapping("/cs-satisfaction/exclude-time")
+    public ResponseEntity<CsSatisfactionExcludeTimeResponse> csSatisfactionExcludeTime(
+            @Valid @RequestBody CsSatisfactionExcludeTimeRequest req) {
+        return ResponseEntity.ok(csSatisfactionService.excludeTime(req));
+    }
+
 
     /**
      * 월간 목표(%) 조회 — 상위 센터별 저장 여부 포함. DB에는 해당 월 1일로 저장.

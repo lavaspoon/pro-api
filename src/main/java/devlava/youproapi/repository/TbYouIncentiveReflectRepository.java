@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -22,6 +23,10 @@ public interface TbYouIncentiveReflectRepository extends JpaRepository<TbYouInce
      */
     Optional<TbYouIncentiveReflect> findFirstBySkidAndReflectYearOrderByReflectMonthDesc(
             String skid, Integer reflectYear);
+
+    /** 관리자 랭킹 등 — 해당 연·스코프 skid 의 모든 반영 행 (월별 중 최신 cumulative 선택용) */
+    List<TbYouIncentiveReflect> findByReflectYearAndSkidIn(
+            Integer reflectYear, Collection<String> skids);
 
     /** 특정 연도·월 이전의 누적 반영 건수 합계 (해당 월 미포함) */
     @Query("""
@@ -62,4 +67,19 @@ public interface TbYouIncentiveReflectRepository extends JpaRepository<TbYouInce
            GROUP BY r.skid
            """)
     List<Object[]> sumReflectedCountGroupBySkidForYear(@Param("year") int year);
+
+    /**
+     * 해당 연도에 {@code cumulative_count >= 1} 인 행이 한 번이라도 있는 스코프 내 구성원 수.
+     * 관리자 대시보드 「연간 인증률」 분자.
+     */
+    @Query("""
+           SELECT COUNT(DISTINCT r.skid)
+           FROM TbYouIncentiveReflect r
+           WHERE r.reflectYear = :year
+             AND r.cumulativeCount >= 1
+             AND r.skid IN :skids
+           """)
+    long countDistinctSkidsCertifiedForYear(
+            @Param("year") int year,
+            @Param("skids") Collection<String> skids);
 }

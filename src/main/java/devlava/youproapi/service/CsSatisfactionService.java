@@ -3,12 +3,16 @@ package devlava.youproapi.service;
 import devlava.youproapi.config.YouproAdminProperties;
 import devlava.youproapi.domain.TbCsSatisfactionAnnualTarget;
 import devlava.youproapi.domain.TbCsSatisfactionDeptMonthlyTarget;
+import devlava.youproapi.domain.TbCsSatisfactionEvalExcludeLog;
 import devlava.youproapi.domain.TbCsSatisfactionRecord;
 import devlava.youproapi.domain.TbCsSatisfactionSkillTarget;
 import devlava.youproapi.domain.TbLmsDept;
 import devlava.youproapi.domain.TbLmsMember;
 import devlava.youproapi.dto.AdminFilterMetaResponse;
 import devlava.youproapi.dto.CsSatisfactionCenterMonthDetailResponse;
+import devlava.youproapi.dto.CsSatisfactionExcludeLogResponse;
+import devlava.youproapi.dto.CsSatisfactionExcludeTimeRequest;
+import devlava.youproapi.dto.CsSatisfactionExcludeTimeResponse;
 import devlava.youproapi.dto.CsSatisfactionMemberMonthlyRowsResponse;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsRequest;
 import devlava.youproapi.dto.CsSatisfactionMonthlyTargetsResponse;
@@ -17,6 +21,7 @@ import devlava.youproapi.dto.CsSatisfactionMonthlyTrendResponse;
 import devlava.youproapi.dto.CsSatisfactionRankingResponse;
 import devlava.youproapi.dto.CsSatisfactionAdminDashboardKpiResponse;
 import devlava.youproapi.dto.CsSatisfactionSummaryResponse;
+import devlava.youproapi.dto.CsSatisfactionTodayHourlyResponse;
 import devlava.youproapi.dto.CsSatisfactionTargetsUnifiedRequest;
 import devlava.youproapi.dto.CsSatisfactionTargetsUnifiedResponse;
 import devlava.youproapi.dto.MemberCsFocusTasksResponse;
@@ -26,12 +31,15 @@ import devlava.youproapi.dto.MemberCsUnsatisfiedRecordItem;
 import devlava.youproapi.dto.MemberSatisfactionResponse;
 import devlava.youproapi.repository.TbCsSatisfactionAnnualTargetRepository;
 import devlava.youproapi.repository.TbCsSatisfactionDeptMonthlyTargetRepository;
+import devlava.youproapi.repository.TbCsSatisfactionEvalExcludeLogRepository;
 import devlava.youproapi.repository.TbCsSatisfactionRecordRepository;
 import devlava.youproapi.repository.TbCsSatisfactionSkillTargetRepository;
 import devlava.youproapi.repository.TbLmsDeptRepository;
 import devlava.youproapi.repository.TbLmsMemberRepository;
 import devlava.youproapi.support.AdminDeptScope;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +48,8 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -54,6 +64,9 @@ public class CsSatisfactionService {
 
     /** {@link TbLmsMember#getYouYn()} 평가대상자 — 만족도 집계·표 인원수에 사용 */
     private static final String EVAL_TARGET_YES = "Y";
+
+    /** 평가 제외 API·화면에서 허용하는 스킬 — {@code TB_YOU_CS."스킬"} 값과 동일해야 함 */
+    private static final List<String> EXCLUDABLE_SKILLS = List.of("일반", "리텐션", "이관", "멀티/기술");
 
     private static boolean isEvalTarget(TbLmsMember m) {
         return m != null && EVAL_TARGET_YES.equalsIgnoreCase(m.getYouYn());
@@ -97,6 +110,7 @@ public class CsSatisfactionService {
     private final TbCsSatisfactionDeptMonthlyTargetRepository deptMonthlyTargetRepository;
     private final TbCsSatisfactionSkillTargetRepository skillTargetRepository;
     private final TbCsSatisfactionAnnualTargetRepository annualTargetRepository;
+    private final TbCsSatisfactionEvalExcludeLogRepository evalExcludeLogRepository;
     private final TbLmsMemberRepository memberRepository;
     private final TbLmsDeptRepository deptRepository;
     private final YouproAdminProperties adminProperties;
@@ -341,6 +355,263 @@ public class CsSatisfactionService {
     }
 
     /**
+     * 스킬·상담일시 구간 내 {@code TB_YOU_CS} 행의 평가시간({@code useYn})을 일괄 {@code N} 처리합니다.
+     * 구간은 시작·종료 일시 모두 포함입니다.
+     */
+    @Transactional(readOnly = false)
+    public CsSatisfactionExcludeTimeResponse excludeTime(CsSatisfactionExcludeTimeRequest req) {
+        String skill = req.getSkill() == null ? "" : req.getSkill().trim();
+        if (skill.isEmpty()) {
+            throw new IllegalArgumentException("skill이 필요합니다.");
+        }
+        if (!EXCLUDABLE_SKILLS.contains(skill)) {
+            throw new IllegalArgumentException("허용되지 않은 스킬입니다. 다음 중 하나만 가능합니다: " + EXCLUDABLE_SKILLS);
+        }
+        LocalDateTime startAt = req.getStartAt();
+        LocalDateTime endAt = req.getEndAt();
+        if (startAt.isAfter(endAt)) {
+            throw new IllegalArgumentException("시작일시가 종료일시보다 늦을 수 없습니다.");
+        }
+        int updated = recordRepository.setUseYnNForSkillAndEvalDateRange(skill, startAt, endAt);
+        TbCsSatisfactionEvalExcludeLog logRow = new TbCsSatisfactionEvalExcludeLog();
+        logRow.setSkillName(skill);
+        logRow.setStartAt(startAt);
+        logRow.setEndAt(endAt);
+        String by = req.getExcludedBySkid();
+        logRow.setExcludedBySkid(by != null && !by.isBlank() ? by.trim() : null);
+        logRow.setUpdatedRowCount(updated);
+        logRow.setCreatedAt(LocalDateTime.now());
+        evalExcludeLogRepository.save(logRow);
+        return CsSatisfactionExcludeTimeResponse.builder()
+                .skill(skill)
+                .startAt(startAt.toString())
+                .endAt(endAt.toString())
+                .updatedCount(updated)
+                .build();
+    }
+
+    /**
+     * 평가 제외 적용 이력(최근 N건, 신규순).
+     */
+    public CsSatisfactionExcludeLogResponse getExcludeLogRecent(int limit) {
+        int lim = limit < 1 ? 50 : Math.min(limit, 200);
+        var page = PageRequest.of(0, lim, Sort.by(Sort.Direction.DESC, "createdAt"));
+        List<TbCsSatisfactionEvalExcludeLog> rows = evalExcludeLogRepository.findAllByOrderByCreatedAtDesc(page);
+        List<CsSatisfactionExcludeLogResponse.Entry> entries = rows.stream()
+                .map(r -> CsSatisfactionExcludeLogResponse.Entry.builder()
+                        .id(r.getId())
+                        .skill(r.getSkillName())
+                        .startAt(r.getStartAt().toString())
+                        .endAt(r.getEndAt().toString())
+                        .excludedBySkid(r.getExcludedBySkid())
+                        .updatedRowCount(r.getUpdatedRowCount())
+                        .createdAt(r.getCreatedAt().toString())
+                        .build())
+                .collect(Collectors.toList());
+        return CsSatisfactionExcludeLogResponse.builder()
+                .entries(entries)
+                .build();
+    }
+
+    /**
+     * 금일(한국시간) 09:00~18:59 구간, 시간(시) 단위 만족도 스냅샷.
+     * 응답 {@code hours} 는 <strong>현재 시각(KST)보다 이전 시</strong>만 포함합니다(진행 중인 시간대 제외).
+     * 평가대상자(you_yn=Y)·평가시간(useYn=Y)·관리자 조직 스코프와 동일하게 필터합니다.
+     */
+    public CsSatisfactionTodayHourlyResponse getTodayHourly(
+            Integer secondDepthDeptId,
+            String skillParam,
+            String adminSkid) {
+        ZoneId zone = ZoneId.of("Asia/Seoul");
+        ZonedDateTime nowZ = ZonedDateTime.now(zone);
+        LocalDate today = nowZ.toLocalDate();
+        int currentHour = nowZ.getHour();
+        LocalDateTime windowStart = today.atTime(9, 0);
+        LocalDateTime windowEnd = today.atTime(18, 59, 59, 999_999_999);
+
+        AdminHourlyProfile profile = resolveAdminHourlyProfile(adminSkid);
+
+        Integer effCenter;
+        if (secondDepthDeptId == null) {
+            effCenter = profile.unscoped() ? null : profile.centerId();
+        } else if (secondDepthDeptId == 0) {
+            effCenter = null;
+        } else {
+            effCenter = secondDepthDeptId;
+        }
+
+        String effSkill;
+        if (skillParam != null) {
+            effSkill = skillParam.isBlank() ? null : skillParam.trim();
+        } else {
+            if (profile.unscoped()) {
+                effSkill = null;
+            } else {
+                String ps = profile.skill();
+                effSkill = ps != null && !ps.isBlank() ? ps.trim() : null;
+            }
+        }
+
+        Set<Integer> roots = new HashSet<>(adminProperties.getSecondDepthDeptIds());
+        if (effCenter != null && !roots.contains(effCenter)) {
+            throw new IllegalArgumentException("허용되지 않은 센터입니다: " + effCenter);
+        }
+        if (effSkill != null && !EXCLUDABLE_SKILLS.contains(effSkill)) {
+            throw new IllegalArgumentException("허용되지 않은 스킬입니다: " + effSkill);
+        }
+
+        List<TbCsSatisfactionRecord> raw = recordRepository.findByEvalDateBetween(windowStart, windowEnd);
+        Set<String> skids = raw.stream()
+                .map(TbCsSatisfactionRecord::getSkid)
+                .filter(s -> s != null && !s.isBlank())
+                .collect(Collectors.toSet());
+        Map<String, TbLmsMember> memberBySkid = skids.isEmpty()
+                ? Map.of()
+                : memberRepository.findAllById(skids).stream()
+                        .filter(m -> m.getSkid() != null)
+                        .collect(Collectors.toMap(TbLmsMember::getSkid, m -> m, (a, b) -> a));
+
+        List<TbLmsDept> allDepts = deptRepository.findAllWithParentFetched();
+        Map<Integer, Integer> parentOf = buildParentMap(allDepts);
+        Set<Integer> allowedDeptIds = deptScopeResolver.resolveAllowedDeptIds();
+
+        Map<Integer, HourlyAgg> byHour = new LinkedHashMap<>();
+        for (int h = 9; h <= 18; h++) {
+            byHour.put(h, new HourlyAgg());
+        }
+
+        for (TbCsSatisfactionRecord rec : raw) {
+            if (!isActiveUseYn(rec) || rec.getEvalDate() == null) {
+                continue;
+            }
+            int h = rec.getEvalDate().getHour();
+            if (h < 9 || h > 18) {
+                continue;
+            }
+            TbLmsMember m = memberBySkid.get(rec.getSkid());
+            if (m == null || m.getDeptIdx() == null || !isEvalTarget(m)) {
+                continue;
+            }
+            if (!allowedDeptIds.contains(m.getDeptIdx())) {
+                continue;
+            }
+            if (effCenter != null) {
+                Integer root = resolveSecondDepthRoot(m.getDeptIdx(), parentOf, roots);
+                if (root == null || !root.equals(effCenter)) {
+                    continue;
+                }
+            }
+            if (effSkill != null) {
+                String rSkill = rec.getSkill() != null ? rec.getSkill().trim() : "";
+                if (!effSkill.equals(rSkill)) {
+                    continue;
+                }
+            }
+            HourlyAgg agg = byHour.get(h);
+            if (agg == null) {
+                continue;
+            }
+            agg.eval++;
+            if (isYes(rec.getSatisfiedYn())) {
+                agg.sat++;
+                if (isYes(rec.getFiveMajorCitiesYn())) {
+                    agg.five++;
+                }
+                if (isYes(rec.getGen5060Yn())) {
+                    agg.gen5060++;
+                }
+                if (isProblemResolvedYes(rec)) {
+                    agg.prob++;
+                }
+            } else if (isNo(rec.getSatisfiedYn())) {
+                agg.diss++;
+            }
+        }
+
+        List<CsSatisfactionTodayHourlyResponse.HourSlot> hours = new ArrayList<>();
+        for (int h = 9; h <= 18; h++) {
+            if (h >= currentHour) {
+                break;
+            }
+            HourlyAgg a = byHour.get(h);
+            long n = a.eval;
+            hours.add(CsSatisfactionTodayHourlyResponse.HourSlot.builder()
+                    .hour(h)
+                    .label(String.format("%02d:00", h))
+                    .sampleCount((int) Math.min(n, Integer.MAX_VALUE))
+                    .satisfiedPct(n > 0 ? round1(100.0 * a.sat / n) : null)
+                    .dissatisfiedPct(n > 0 ? round1(100.0 * a.diss / n) : null)
+                    .fiveMajorCitiesPct(n > 0 ? round1(100.0 * a.five / n) : null)
+                    .gen5060Pct(n > 0 ? round1(100.0 * a.gen5060 / n) : null)
+                    .problemResolvedPct(n > 0 ? round1(100.0 * a.prob / n) : null)
+                    .build());
+        }
+
+        List<CsSatisfactionTodayHourlyResponse.CenterOption> centers = new ArrayList<>();
+        centers.add(CsSatisfactionTodayHourlyResponse.CenterOption.builder()
+                .id(0)
+                .name("전체")
+                .build());
+        Map<Integer, String> rootNames = loadRootNames(roots);
+        for (Integer rid : adminProperties.getSecondDepthDeptIds()) {
+            if (rid == null) {
+                continue;
+            }
+            centers.add(CsSatisfactionTodayHourlyResponse.CenterOption.builder()
+                    .id(rid)
+                    .name(rootNames.getOrDefault(rid, String.valueOf(rid)))
+                    .build());
+        }
+
+        return CsSatisfactionTodayHourlyResponse.builder()
+                .date(today.toString())
+                .windowStart("09:00")
+                .windowEnd("18:59")
+                .zoneId(zone.getId())
+                .appliedSecondDepthDeptId(effCenter)
+                .appliedSkill(effSkill)
+                .profileSuggestedCenterId(profile.centerId())
+                .profileSuggestedSkill(profile.skill())
+                .profileUnscoped(profile.unscoped())
+                .centers(centers)
+                .skillOptions(new ArrayList<>(EXCLUDABLE_SKILLS))
+                .hours(hours)
+                .build();
+    }
+
+    private AdminHourlyProfile resolveAdminHourlyProfile(String adminSkid) {
+        if (adminSkid == null || adminSkid.isBlank()) {
+            return new AdminHourlyProfile(null, null, true);
+        }
+        TbLmsMember m = memberRepository.findById(adminSkid.trim()).orElse(null);
+        if (m == null || m.getDeptIdx() == null) {
+            return new AdminHourlyProfile(null, null, true);
+        }
+        List<TbLmsDept> allDepts = deptRepository.findAllWithParentFetched();
+        Map<Integer, Integer> parentOf = buildParentMap(allDepts);
+        Set<Integer> roots = new HashSet<>(adminProperties.getSecondDepthDeptIds());
+        Integer root = resolveSecondDepthRoot(m.getDeptIdx(), parentOf, roots);
+        if (root == null || !roots.contains(root)) {
+            return new AdminHourlyProfile(null, null, true);
+        }
+        Map<Integer, TbLmsDept> deptById = allDepts.stream()
+                .collect(Collectors.toMap(TbLmsDept::getDeptId, d -> d, (a, b) -> a));
+        String sk = resolveDeptSkill(m, deptById);
+        return new AdminHourlyProfile(root, sk, false);
+    }
+
+    private record AdminHourlyProfile(Integer centerId, String skill, boolean unscoped) {}
+
+    private static final class HourlyAgg {
+        private long eval;
+        private long sat;
+        private long diss;
+        private long five;
+        private long gen5060;
+        private long prob;
+    }
+
+    /**
      * AI 인사이트 프롬프트용 Good/Bad 멘트.
      * {@code tb_you_cs} 중 평가시간({@link TbCsSatisfactionRecord#getUseYn()})이 {@code Y}이고
      * 상담일시가 해당 연·월인 행만 풀로 두고, 그중 상담일시({@code evalDate})의 날짜가 가장 최근인 날에
@@ -432,22 +703,28 @@ public class CsSatisfactionService {
                 r.getProblemResolvedYn());
     }
 
-    public CsSatisfactionSummaryResponse getSummary(Integer year, Integer month, Integer secondDepthDeptIdFilter) {
-        LocalDate now = LocalDate.now();
-        int y = year != null ? year : now.getYear();
-        int selectedMonth = month != null ? month : now.getMonthValue();
+    public CsSatisfactionSummaryResponse getSummary(
+            Integer year, Integer month, Integer secondDepthDeptIdFilter, boolean rollingThroughYesterday) {
         validateSecondDepthFilter(secondDepthDeptIdFilter);
+        CsSatPeriod ctx = resolveCsSatPeriod(year, month, rollingThroughYesterday);
+        Double problemAnnualTarget = loadProblemResolvedAnnualTargetPercent(ctx.to().getYear());
 
         if (secondDepthDeptIdFilter != null && secondDepthDeptIdFilter == SECOND_DEPTH_UNMATCHED) {
             return CsSatisfactionSummaryResponse.builder()
-                    .year(y)
+                    .year(ctx.displayYear())
+                    .statFrom(ctx.from().toString())
+                    .statTo(ctx.to().toString())
+                    .rollingThroughYesterday(ctx.rolling())
+                    .problemResolvedAnnualTargetPercent(problemAnnualTarget)
                     .filterMeta(buildFilterMeta())
                     .rows(Collections.emptyList())
                     .build();
         }
 
-        LocalDate from = LocalDate.of(y, selectedMonth, 1);
-        LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
+        LocalDate from = ctx.from();
+        LocalDate to = ctx.to();
+        int y = ctx.displayYear();
+        int selectedMonth = ctx.displayMonth();
 
         List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetween(
                 atStartOfDay(from), atEndOfDay(to));
@@ -495,6 +772,7 @@ public class CsSatisfactionService {
                 .collect(Collectors.toMap(TbLmsMember::getSkid, m -> m, (a, b) -> a));
         Map<Integer, Map<String, Agg>> monthAggByLeafAndSkid = new HashMap<>();
         for (TbCsSatisfactionRecord rec : monthRecords) {
+            if (!isActiveUseYn(rec)) continue;
             TbLmsMember m = monthMemberBySkid.get(rec.getSkid());
             if (m == null || m.getDeptIdx() == null || !isEvalTarget(m)) continue;
             Integer leafId = resolveLeafBucket(m.getDeptIdx(), allowedLeaves, parentOf);
@@ -508,6 +786,7 @@ public class CsSatisfactionService {
         Map<String, Double> monthSkillTargetCache = new HashMap<>();
         Map<String, Double> rowSkillTargetCache = new HashMap<>();
         for (TbCsSatisfactionRecord rec : records) {
+            if (!isActiveUseYn(rec)) continue;
             TbLmsMember m = memberBySkid.get(rec.getSkid());
             if (m == null || m.getDeptIdx() == null || !isEvalTarget(m)) {
                 continue;
@@ -607,6 +886,11 @@ public class CsSatisfactionService {
                     ? round1(100.0 * monthAchieved / monthEligible)
                     : null;
 
+            Double fivePct = a.eval == 0 ? null : round1(100.0 * a.fiveMajor / a.eval);
+            Double genPct = a.eval == 0 ? null : round1(100.0 * a.gen5060 / a.eval);
+            Double probPct = a.eval == 0 ? null : round1(100.0 * a.problemResolved / a.eval);
+            Double probInv = problemInverseAchievementPct(probPct, problemAnnualTarget);
+
             rows.add(CsSatisfactionSummaryResponse.SecondDepthSatisfactionRow.builder()
                     .secondDepthDeptId(leaf.getDeptId())
                     .centerName(centerName)
@@ -626,11 +910,19 @@ public class CsSatisfactionService {
                     .fiveMajorCitiesCount(a.fiveMajor)
                     .gen5060Count(a.gen5060)
                     .problemResolvedCount(a.problemResolved)
+                    .fiveMajorCitiesPct(fivePct)
+                    .gen5060Pct(genPct)
+                    .problemResolvedPct(probPct)
+                    .problemResolvedInverseAchievementPct(probInv)
                     .build());
         }
 
         return CsSatisfactionSummaryResponse.builder()
                 .year(y)
+                .statFrom(from.toString())
+                .statTo(to.toString())
+                .rollingThroughYesterday(ctx.rolling())
+                .problemResolvedAnnualTargetPercent(problemAnnualTarget)
                 .filterMeta(buildFilterMeta())
                 .rows(rows)
                 .build();
@@ -668,6 +960,7 @@ public class CsSatisfactionService {
         int[] dissByMonth = new int[13];
 
         for (TbCsSatisfactionRecord rec : records) {
+            if (!isActiveUseYn(rec)) continue;
             TbLmsMember m = memberBySkid.get(rec.getSkid());
             if (m == null || !isEvalTarget(m) || m.getDeptIdx() == null) {
                 continue;
@@ -749,6 +1042,7 @@ public class CsSatisfactionService {
         int[] probByMonth = new int[13];
 
         for (TbCsSatisfactionRecord rec : records) {
+            if (!isActiveUseYn(rec)) continue;
             TbLmsMember m = memberBySkid.get(rec.getSkid());
             if (m == null || m.getDeptIdx() == null || !isEvalTarget(m)) {
                 continue;
@@ -836,6 +1130,7 @@ public class CsSatisfactionService {
         ScopeAgg overall = new ScopeAgg();
 
         for (TbCsSatisfactionRecord rec : recordsMonth) {
+            if (!isActiveUseYn(rec)) continue;
             TbLmsMember m = memberBySkid.get(rec.getSkid());
             if (m == null || m.getDeptIdx() == null || !isEvalTarget(m)) continue;
             Integer root = resolveSecondDepthRoot(m.getDeptIdx(), parentOf, roots);
@@ -997,6 +1292,7 @@ public class CsSatisfactionService {
 
         Map<String, long[]> agg = new HashMap<>();
         for (TbCsSatisfactionRecord rec : records) {
+            if (!isActiveUseYn(rec)) continue;
             TbLmsMember m = memberBySkid.get(rec.getSkid());
             if (m == null || m.getDeptIdx() == null || !isEvalTarget(m)) {
                 continue;
@@ -1074,13 +1370,14 @@ public class CsSatisfactionService {
     }
 
     /**
-     * 만족도 요약 + 구성원(skid)별 건수. {@code month} 가 있으면 해당 월만, 없으면 {@code year} 년 1/1~12/31.
+     * 만족도 요약 + 구성원(skid)별 건수. {@code rollingThroughYesterday=true} 이면 KST 「당월 1일~전일」(1일이면 전월)과
+     * {@link #getSummary} 롤링 모드와 동일 구간. 그렇지 않으면 {@code month} 가 있으면 해당 월만, 없으면 {@code year} 년 1/1~12/31.
      * {@code secondDepthDeptId} 는 (1) {@code youpro.admin.second-depth-dept-ids} 에
      * 등록된 <em>센터</em> id 이거나,
      * (2) 연간 요약 표({@link #getSummary}) 각 행과 동일한 <em>리프 팀</em> dept id 여야 한다.
      */
     public CsSatisfactionCenterMonthDetailResponse getCenterMonthDetail(
-            int secondDepthDeptId, Integer year, Integer month) {
+            int secondDepthDeptId, Integer year, Integer month, boolean rollingThroughYesterday) {
         if (secondDepthDeptId == SECOND_DEPTH_UNMATCHED) {
             throw new IllegalArgumentException("상위 센터만 조회할 수 있습니다.");
         }
@@ -1102,24 +1399,22 @@ public class CsSatisfactionService {
             }
         }
 
-        LocalDate now = LocalDate.now();
-        int y = year != null ? year : now.getYear();
-        /** month 가 null 이면 해당 연도 1/1~12/31 (상단 연간 요약과 동일 범위로 구성원 집계) */
-        final int mo;
-        final LocalDate from;
-        final LocalDate to;
-        if (month != null) {
-            mo = month;
-            from = LocalDate.of(y, mo, 1);
-            to = from.withDayOfMonth(from.lengthOfMonth());
+        CenterDetailPeriod period = resolveCenterDetailPeriod(year, month, rollingThroughYesterday);
+        LocalDate from = period.from();
+        LocalDate to = period.to();
+        int y = period.displayYear();
+        int mo = period.displayMonth();
+        ZoneId z = ZoneId.of("Asia/Seoul");
+        LocalDate todayKst = ZonedDateTime.now(z).toLocalDate();
+        final LocalDate targetMonthKey;
+        if (period.rolling()) {
+            targetMonthKey = firstDayOfMonth(y, mo);
+        } else if (mo > 0) {
+            targetMonthKey = firstDayOfMonth(y, mo);
         } else {
-            mo = 0;
-            from = LocalDate.of(y, 1, 1);
-            to = LocalDate.of(y, 12, 31);
+            targetMonthKey = firstDayOfMonth(todayKst.getYear(), todayKst.getMonthValue());
         }
-        final LocalDate targetMonthKey = month != null
-                ? firstDayOfMonth(y, mo)
-                : firstDayOfMonth(now.getYear(), now.getMonthValue());
+        Double problemAnnualTarget = loadProblemResolvedAnnualTargetPercent(to.getYear());
         Map<String, Double> monthSkillTargetCache = new HashMap<>();
 
         List<TbCsSatisfactionRecord> records = recordRepository.findByEvalDateBetween(
@@ -1138,6 +1433,7 @@ public class CsSatisfactionService {
         Map<String, Agg> bySkid = new LinkedHashMap<>();
 
         for (TbCsSatisfactionRecord rec : records) {
+            if (!isActiveUseYn(rec)) continue;
             TbLmsMember m = memberBySkid.get(rec.getSkid());
             if (m == null || m.getDeptIdx() == null || !isEvalTarget(m)) {
                 continue;
@@ -1190,6 +1486,10 @@ public class CsSatisfactionService {
                             .map(t -> t.getTargetPercent().doubleValue())
                             .orElse(null));
             Double rate = a.eval == 0 ? null : round1(100.0 * a.sat / a.eval);
+            Double fivePctM = a.eval == 0 ? null : round1(100.0 * a.fiveMajor / a.eval);
+            Double genPctM = a.eval == 0 ? null : round1(100.0 * a.gen5060 / a.eval);
+            Double probPctM = a.eval == 0 ? null : round1(100.0 * a.problemResolved / a.eval);
+            Double probInvM = problemInverseAchievementPct(probPctM, problemAnnualTarget);
             memberRows.add(CsSatisfactionCenterMonthDetailResponse.MemberMonthRow.builder()
                     .skid(skid)
                     .mbName(name)
@@ -1202,6 +1502,10 @@ public class CsSatisfactionService {
                     .gen5060Count(a.gen5060)
                     .fiveMajorCitiesCount(a.fiveMajor)
                     .problemResolvedCount(a.problemResolved)
+                    .fiveMajorCitiesPct(fivePctM)
+                    .gen5060Pct(genPctM)
+                    .problemResolvedPct(probPctM)
+                    .problemResolvedInverseAchievementPct(probInvM)
                     .build());
         }
         for (Map.Entry<String, Agg> e : bySkid.entrySet()) {
@@ -1219,6 +1523,10 @@ public class CsSatisfactionService {
                             .map(t -> t.getTargetPercent().doubleValue())
                             .orElse(null));
             Double rate = a.eval == 0 ? null : round1(100.0 * a.sat / a.eval);
+            Double fivePctM = a.eval == 0 ? null : round1(100.0 * a.fiveMajor / a.eval);
+            Double genPctM = a.eval == 0 ? null : round1(100.0 * a.gen5060 / a.eval);
+            Double probPctM = a.eval == 0 ? null : round1(100.0 * a.problemResolved / a.eval);
+            Double probInvM = problemInverseAchievementPct(probPctM, problemAnnualTarget);
             memberRows.add(CsSatisfactionCenterMonthDetailResponse.MemberMonthRow.builder()
                     .skid(skid)
                     .mbName(name)
@@ -1231,6 +1539,10 @@ public class CsSatisfactionService {
                     .gen5060Count(a.gen5060)
                     .fiveMajorCitiesCount(a.fiveMajor)
                     .problemResolvedCount(a.problemResolved)
+                    .fiveMajorCitiesPct(fivePctM)
+                    .gen5060Pct(genPctM)
+                    .problemResolvedPct(probPctM)
+                    .problemResolvedInverseAchievementPct(probInvM)
                     .build());
         }
 
@@ -1243,12 +1555,19 @@ public class CsSatisfactionService {
                 .thenComparing(CsSatisfactionCenterMonthDetailResponse.MemberMonthRow::getSkid));
 
         Double totalRate = total.eval == 0 ? null : round1(100.0 * total.sat / total.eval);
+        Double fivePctT = total.eval == 0 ? null : round1(100.0 * total.fiveMajor / total.eval);
+        Double genPctT = total.eval == 0 ? null : round1(100.0 * total.gen5060 / total.eval);
+        Double probPctT = total.eval == 0 ? null : round1(100.0 * total.problemResolved / total.eval);
+        Double probInvT = problemInverseAchievementPct(probPctT, problemAnnualTarget);
 
         return CsSatisfactionCenterMonthDetailResponse.builder()
                 .year(y)
                 .month(mo)
                 .secondDepthDeptId(secondDepthDeptId)
                 .secondDepthName(centerName)
+                .statFrom(from.toString())
+                .statTo(to.toString())
+                .rollingThroughYesterday(period.rolling())
                 .evalCount(total.eval)
                 .satisfiedCount(total.sat)
                 .dissatisfiedCount(total.diss)
@@ -1256,6 +1575,11 @@ public class CsSatisfactionService {
                 .gen5060Count(total.gen5060)
                 .fiveMajorCitiesCount(total.fiveMajor)
                 .problemResolvedCount(total.problemResolved)
+                .fiveMajorCitiesPct(fivePctT)
+                .gen5060Pct(genPctT)
+                .problemResolvedPct(probPctT)
+                .problemResolvedInverseAchievementPct(probInvT)
+                .problemResolvedAnnualTargetPercent(problemAnnualTarget)
                 .members(memberRows)
                 .build();
     }
@@ -1331,6 +1655,10 @@ public class CsSatisfactionService {
 
     private static boolean isNo(String value) {
         return "N".equalsIgnoreCase(String.valueOf(value).trim());
+    }
+
+    private static boolean isActiveUseYn(TbCsSatisfactionRecord rec) {
+        return rec != null && isYes(rec.getUseYn());
     }
 
     /**
@@ -1615,6 +1943,91 @@ public class CsSatisfactionService {
                         TbLmsDept::getDeptId,
                         d -> d.getDeptName() != null ? d.getDeptName() : String.valueOf(d.getDeptId()),
                         (a, b) -> a));
+    }
+
+    /** KST 기준 요약 집계: rolling 이면 당월 1일~전일(당일이 1일이면 전월 전체), 아니면 지정 월 전체. */
+    private record CsSatPeriod(LocalDate from, LocalDate to, int displayYear, int displayMonth, boolean rolling) {}
+
+    private static CsSatPeriod resolveCsSatPeriod(Integer year, Integer month, boolean rollingThroughYesterday) {
+        ZoneId z = ZoneId.of("Asia/Seoul");
+        LocalDate today = ZonedDateTime.now(z).toLocalDate();
+        if (rollingThroughYesterday) {
+            if (today.getDayOfMonth() == 1) {
+                LocalDate prev = today.minusMonths(1);
+                int ly = prev.getYear();
+                int lm = prev.getMonthValue();
+                LocalDate from = prev.withDayOfMonth(1);
+                LocalDate to = prev.withDayOfMonth(prev.lengthOfMonth());
+                return new CsSatPeriod(from, to, ly, lm, true);
+            }
+            int ly = today.getYear();
+            int lm = today.getMonthValue();
+            LocalDate from = today.withDayOfMonth(1);
+            LocalDate to = today.minusDays(1);
+            return new CsSatPeriod(from, to, ly, lm, true);
+        }
+        int y = year != null ? year : today.getYear();
+        int m = month != null ? month : today.getMonthValue();
+        LocalDate from = LocalDate.of(y, m, 1);
+        LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
+        return new CsSatPeriod(from, to, y, m, false);
+    }
+
+    /** 구성원 상세: rolling / 단일 월 / 연 전체. */
+    private record CenterDetailPeriod(
+            LocalDate from, LocalDate to, int displayYear, int displayMonth, boolean rolling) {}
+
+    private static CenterDetailPeriod resolveCenterDetailPeriod(
+            Integer year, Integer month, boolean rollingThroughYesterday) {
+        if (rollingThroughYesterday) {
+            CsSatPeriod ctx = resolveCsSatPeriod(null, null, true);
+            return new CenterDetailPeriod(
+                    ctx.from(), ctx.to(), ctx.displayYear(), ctx.displayMonth(), true);
+        }
+        ZoneId z = ZoneId.of("Asia/Seoul");
+        LocalDate today = ZonedDateTime.now(z).toLocalDate();
+        int y = year != null ? year : today.getYear();
+        if (month != null) {
+            LocalDate from = LocalDate.of(y, month, 1);
+            LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
+            return new CenterDetailPeriod(from, to, y, month, false);
+        }
+        LocalDate from = LocalDate.of(y, 1, 1);
+        LocalDate to = LocalDate.of(y, 12, 31);
+        return new CenterDetailPeriod(from, to, y, 0, false);
+    }
+
+    private Double loadProblemResolvedAnnualTargetPercent(int targetYear) {
+        return annualTargetRepository
+                .findByTargetYearAndTaskCode(targetYear, "PROBLEM_RESOLVED")
+                .map(TbCsSatisfactionAnnualTarget::getTargetPercent)
+                .map(BigDecimal::doubleValue)
+                .orElse(null);
+    }
+
+    /**
+     * 문제해결률이 낮을수록 불리한 지표에 대해, 연간 목표가 허용하는 미달성 비중(targetGap) 대비
+     * 실제 미달성 비중(actualGap)을 역산한 달성률(%). 상한 100.
+     */
+    private Double problemInverseAchievementPct(Double actualResolvedPct, Double targetResolvedPct) {
+        if (actualResolvedPct == null || targetResolvedPct == null) {
+            return null;
+        }
+        double t = targetResolvedPct;
+        if (t <= 0 || t >= 100) {
+            return null;
+        }
+        double a = actualResolvedPct;
+        double targetGap = 100.0 - t;
+        double actualGap = 100.0 - a;
+        if (actualGap <= 0) {
+            return 100.0;
+        }
+        if (targetGap <= 0) {
+            return null;
+        }
+        double raw = 100.0 * targetGap / actualGap;
+        return round1(Math.min(100.0, raw));
     }
 
     private static Double round1(double v) {

@@ -9,7 +9,7 @@ public interface TbYouIncentiveMonthStatRepository
         extends JpaRepository<TbYouIncentiveMonthStat, TbYouIncentiveMonthStat.Pk> {
 
     /**
-     * YOU PRO 이벤트 월(1~9) 구간에 저장된 스케줄 스냅샷 — 관리자 인증률 분모(월별 평균 인원)용.
+     * 해당 연·월 구간에 저장된 평가대상자 스냅샷 — 관리자 대시보드 인증률 분모(월별 평균 인원) 등.
      */
     List<TbYouIncentiveMonthStat> findByReflectYearAndReflectMonthBetweenOrderByReflectMonth(
             Integer reflectYear, int reflectMonthStart, int reflectMonthEnd);

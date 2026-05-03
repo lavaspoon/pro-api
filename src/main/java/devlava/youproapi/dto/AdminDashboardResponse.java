@@ -26,11 +26,12 @@ public class AdminDashboardResponse {
     /** 해당 연·월 선정 건수 — {@code call_date} 연·월, {@code status = selected} */
     private long monthlySelected;
     /**
-     * 해당 연·월 인증율(%) — 스코프 내 평가대상자 중 이번 달(call_date) 선정 1건 이상 인원 ÷
-     * {@code tb_you_incentive_month_stat} 해당 연도 1~9월 {@code eval_target_count} 산술평균.
+     * 연간 인증률(%) — 해당 연도에 {@code tb_you_incentive_reflect.cumulative_count >= 1} 인
+     * 스코프 내 평가대상자 수 ÷ {@code tb_you_incentive_month_stat} 해당 연도 1월부터 KPI
+     * {@code currentMonth} 월까지 {@code eval_target_count} 산술평균 × 100.
      * 스냅샷이 없거나 평균이 0이면 null.
      */
-    private Double monthlyCertificationRate;
+    private Double annualCertificationRate;
     /** 해당 연도 1~12월 신청·선정 건수 (차트용) */
     private List<MonthlyTrendPoint> monthlyTrend;
     private List<TeamSummary> teams;
@@ -64,6 +65,21 @@ public class AdminDashboardResponse {
         private long monthlySubmitted;
         /** 이번 달 팀 소속 선정 건수 합 */
         private long monthlySelected;
+        /**
+         * 팀 소속 구성원별 해당 연 최신 반영 월 {@code tb_you_incentive_reflect.cumulative_count} 합계
+         * (만족도 달성 시 반영되는 누적 인증 건수).
+         */
+        private long reflectCumulativeTotal;
+        /**
+         * 평가대상자({@code you_yn = Y}) 중 해당 연 {@code cumulative_count >= 1} 인 인원 수
+         * ({@link #certificationRate} 분자).
+         */
+        private int certifiedEvalTargetCount;
+        /**
+         * 인증률(%) — {@link #certifiedEvalTargetCount} ÷ {@link #memberCount} × 100.
+         * 평가대상자 0명이면 null.
+         */
+        private Double certificationRate;
         /** 팀 소속 구성원의 검토 대기 건수 합 */
         private long pendingCount;
         /** 해당 연도 판정 완료(선정+비선정) 건수 */

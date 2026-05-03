@@ -6,7 +6,6 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.time.format.DateTimeFormatter;
-import java.util.Map;
 
 /**
  * 사례 응답 DTO — 구성원/관리자 화면 공용.
@@ -20,14 +19,15 @@ public class CaseResponse {
     private static final DateTimeFormatter MONTH_FMT = DateTimeFormatter.ofPattern("yyyy-MM");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    private static Object parseAiInsightJson(String json) {
-        if (json == null || json.isBlank()) {
+    /** JSON이면 파싱, 아니면(일반 텍스트) 그대로 문자열로 노출 */
+    private static Object parseAiKeyPoint(String raw) {
+        if (raw == null || raw.isBlank()) {
             return null;
         }
         try {
-            return OBJECT_MAPPER.readValue(json, Map.class);
+            return OBJECT_MAPPER.readValue(raw.trim(), Object.class);
         } catch (Exception e) {
-            return null;
+            return raw.trim();
         }
     }
 
@@ -53,10 +53,10 @@ public class CaseResponse {
     /** "pending" | "selected" | "rejected" */
     private String status;
 
-    /** 통화 일시 (STT 조회 키) */
+    /** 통화 일시 */
     private String callDate;
 
-    /** 통화 길이 (STT, 없으면 null) */
+    /** 통화 길이 (레거시 필드, 미사용 시 null) */
     private String callDuration;
 
     /** 고객 유형 */
@@ -71,16 +71,13 @@ public class CaseResponse {
     /** 접수 월 "yyyy-MM" (CaseListPage: c.month) */
     private String month;
 
-    /**
-     * STT 통화 전체 전사본 (개인정보보호: 발화 단위 세그먼트는 저장하지 않음).
-     * STT 미연동 시 null.
-     */
+    /** 레거시 필드 (항상 null) */
     private String fullTranscript;
 
-    /** AI가 전하는 피드백 (JSON이면 파싱된 객체, 아니면 null 처리) */
+    /** AI 1차 판단 ({@code ai_key_point}) — JSON이면 파싱, 아니면 문자열 */
     private Object aiKeyPoint;
 
-    /** AI가 추출한 STT 중 핵심 멘트 (판정 후 저장) */
+    /** AI 핵심 멘트 (선택) */
     private String aiKeyPhrase;
 
     // ─── Factory ──────────────────────────────────────────────────────────
@@ -104,12 +101,12 @@ public class CaseResponse {
                 .judgedAt(c.getJudgedAt() != null ? c.getJudgedAt().format(ISO) : null)
                 .month(c.getSubmittedAt() != null ? c.getSubmittedAt().format(MONTH_FMT) : null)
                 .fullTranscript(fullTranscript)
-                .aiKeyPoint(parseAiInsightJson(c.getAiKeyPoint()))
+                .aiKeyPoint(parseAiKeyPoint(c.getAiKeyPoint()))
                 .aiKeyPhrase(c.getAiKeyPhrase())
                 .build();
     }
 
-    /** STT 없이 기본 사례 응답 생성 */
+    /** 상세 없이 목록용 응답 */
     public static CaseResponse fromSimple(TbYouProCase c, String memberName, String teamName) {
         return from(c, memberName, teamName, null, null);
     }

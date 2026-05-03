@@ -14,6 +14,10 @@ public class CsSatisfactionCenterMonthDetailResponse {
     private int secondDepthDeptId;
     private String secondDepthName;
 
+    private String statFrom;
+    private String statTo;
+    private boolean rollingThroughYesterday;
+
     private long evalCount;
     private long satisfiedCount;
     private long dissatisfiedCount;
@@ -23,6 +27,11 @@ public class CsSatisfactionCenterMonthDetailResponse {
     private long gen5060Count;
     private long fiveMajorCitiesCount;
     private long problemResolvedCount;
+    private Double fiveMajorCitiesPct;
+    private Double gen5060Pct;
+    private Double problemResolvedPct;
+    private Double problemResolvedInverseAchievementPct;
+    private Double problemResolvedAnnualTargetPercent;
 
     private List<MemberMonthRow> members;
 
@@ -41,5 +50,9 @@ public class CsSatisfactionCenterMonthDetailResponse {
         private long gen5060Count;
         private long fiveMajorCitiesCount;
         private long problemResolvedCount;
+        private Double fiveMajorCitiesPct;
+        private Double gen5060Pct;
+        private Double problemResolvedPct;
+        private Double problemResolvedInverseAchievementPct;
     }
 }

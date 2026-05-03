@@ -3,6 +3,7 @@ package devlava.youproapi.service;
 import devlava.youproapi.config.YouproAdminProperties;
 import devlava.youproapi.domain.TbLmsDept;
 import devlava.youproapi.domain.TbLmsMember;
+import devlava.youproapi.domain.TbYouIncentiveReflect;
 import devlava.youproapi.domain.TbYouIncentiveMonthStat;
 import devlava.youproapi.domain.TbYouProCase;
 import devlava.youproapi.dto.AdminDashboardResponse;
@@ -19,6 +20,7 @@ import devlava.youproapi.dto.TeamDetailResponse;
 import devlava.youproapi.repository.TbLmsDeptRepository;
 import devlava.youproapi.repository.TbLmsMemberRepository;
 import devlava.youproapi.repository.TbYouIncentiveMonthStatRepository;
+import devlava.youproapi.repository.TbYouIncentiveReflectRepository;
 import devlava.youproapi.support.AdminDeptScope;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -46,6 +48,7 @@ public class AdminService {
     private final AdminDeptScopeResolver deptScopeResolver;
     private final CaseService caseService;
     private final TbYouIncentiveMonthStatRepository incentiveMonthStatRepository;
+    private final TbYouIncentiveReflectRepository incentiveReflectRepository;
 
     // ─── 관리자 대시보드 ─────────────────────────────────────────────────────
 
@@ -88,8 +91,8 @@ public class AdminService {
     }
 
     /**
-     * {@code TB_YOU_PRO_CASE} 해당 연도 접수 건수 기준 랭킹 및 2depth 센터별 접수 합계.
-     * 부서 트리 1회 + 스코프 구성원 1회 + skid별 접수 집계 1회 — N+1 없음.
+     * {@code tb_you_incentive_reflect} 해당 연도 최신 반영 월 {@code cumulative_count} 기준 랭킹
+     * 및 2depth 센터별 누적 합계. 부서 트리 1회 + 스코프 구성원 1회 + 반영 행 배치 1회.
      */
     public AdminRankingResponse getRanking(int year, int topN) {
         List<TbLmsMember> scoped = loadScopedMembers();
@@ -99,7 +102,7 @@ public class AdminService {
                     .topN(topN)
                     .bySecondDepth(List.of())
                     .combined(AdminRankingResponse.CombinedRanking.builder()
-                            .totalSubmitted(0L)
+                            .totalCumulative(0L)
                             .topMembers(List.of())
                             .build())
                     .build();
@@ -126,7 +129,7 @@ public class AdminService {
         }
 
         List<String> allSkids = scoped.stream().map(TbLmsMember::getSkid).collect(Collectors.toList());
-        Map<String, Long> submittedBySkid = caseService.mapSubmittedBySkidForYear(allSkids, year);
+        Map<String, Long> cumulativeBySkid = latestCumulativeCountBySkidForYear(year, allSkids);
 
         Map<Integer, String> rootNames = deptRepository.findAllById(rootSet).stream()
                 .collect(Collectors.toMap(TbLmsDept::getDeptId, d -> d.getDeptName() != null ? d.getDeptName() : "", (a, b) -> a));
@@ -135,13 +138,13 @@ public class AdminService {
         for (Integer rootId : adminProperties.getSecondDepthDeptIds()) {
             List<TbLmsMember> inRoot = byRoot.getOrDefault(rootId, List.of());
             long centerTotal = inRoot.stream()
-                    .mapToLong(m -> submittedBySkid.getOrDefault(m.getSkid(), 0L))
+                    .mapToLong(m -> cumulativeBySkid.getOrDefault(m.getSkid(), 0L))
                     .sum();
             blocks.add(AdminRankingResponse.SecondDepthRanking.builder()
                     .secondDepthDeptId(rootId)
                     .secondDepthName(rootNames.getOrDefault(rootId, String.valueOf(rootId)))
-                    .centerTotalSubmitted(centerTotal)
-                    .topMembers(buildTopRankEntries(inRoot, submittedBySkid, topN))
+                    .centerTotalCumulative(centerTotal)
+                    .topMembers(buildTopRankEntries(inRoot, cumulativeBySkid, topN))
                     .build());
         }
 
@@ -149,7 +152,7 @@ public class AdminService {
                 .flatMap(List::stream)
                 .collect(Collectors.toList());
         long combinedTotal = combinedMembers.stream()
-                .mapToLong(m -> submittedBySkid.getOrDefault(m.getSkid(), 0L))
+                .mapToLong(m -> cumulativeBySkid.getOrDefault(m.getSkid(), 0L))
                 .sum();
 
         return AdminRankingResponse.builder()
@@ -157,10 +160,32 @@ public class AdminService {
                 .topN(topN)
                 .bySecondDepth(blocks)
                 .combined(AdminRankingResponse.CombinedRanking.builder()
-                        .totalSubmitted(combinedTotal)
-                        .topMembers(buildTopRankEntries(combinedMembers, submittedBySkid, topN))
+                        .totalCumulative(combinedTotal)
+                        .topMembers(buildTopRankEntries(combinedMembers, cumulativeBySkid, topN))
                         .build())
                 .build();
+    }
+
+    /**
+     * 해당 연도 각 skid 에 대해 {@code reflect_month} 가 가장 큰 행의 {@code cumulative_count}.
+     */
+    private Map<String, Long> latestCumulativeCountBySkidForYear(int year, List<String> skids) {
+        if (skids.isEmpty()) {
+            return Map.of();
+        }
+        List<TbYouIncentiveReflect> rows =
+                incentiveReflectRepository.findByReflectYearAndSkidIn(year, skids);
+        Map<String, TbYouIncentiveReflect> latestRow = new HashMap<>();
+        for (TbYouIncentiveReflect r : rows) {
+            latestRow.merge(r.getSkid(), r, (a, b) ->
+                    b.getReflectMonth() >= a.getReflectMonth() ? b : a);
+        }
+        Map<String, Long> out = new HashMap<>();
+        for (String skid : skids) {
+            TbYouIncentiveReflect r = latestRow.get(skid);
+            out.put(skid, r != null ? r.getCumulativeCount().longValue() : 0L);
+        }
+        return out;
     }
 
     private static Integer resolveSecondDepthRoot(Integer deptIdx, Map<Integer, Integer> parentOf, Set<Integer> roots) {
@@ -176,18 +201,26 @@ public class AdminService {
 
     private static List<AdminRankingResponse.RankEntry> buildTopRankEntries(
             List<TbLmsMember> members,
-            Map<String, Long> submittedBySkid,
+            Map<String, Long> cumulativeBySkid,
             int topN) {
         return members.stream()
-                .sorted((a, b) -> Long.compare(
-                        submittedBySkid.getOrDefault(b.getSkid(), 0L),
-                        submittedBySkid.getOrDefault(a.getSkid(), 0L)))
+                .sorted((a, b) -> {
+                    long va = cumulativeBySkid.getOrDefault(a.getSkid(), 0L);
+                    long vb = cumulativeBySkid.getOrDefault(b.getSkid(), 0L);
+                    int cmp = Long.compare(vb, va);
+                    if (cmp != 0) {
+                        return cmp;
+                    }
+                    String na = a.getMbName() != null ? a.getMbName() : "";
+                    String nb = b.getMbName() != null ? b.getMbName() : "";
+                    return na.compareTo(nb);
+                })
                 .limit(topN)
                 .map(m -> AdminRankingResponse.RankEntry.builder()
                         .skid(m.getSkid())
                         .memberName(m.getMbName())
                         .teamName(m.getDeptName() != null ? m.getDeptName() : "")
-                        .submittedCount(submittedBySkid.getOrDefault(m.getSkid(), 0L))
+                        .cumulativeCount(cumulativeBySkid.getOrDefault(m.getSkid(), 0L))
                         .build())
                 .collect(Collectors.toList());
     }
@@ -271,6 +304,7 @@ public class AdminService {
         Map<String, Long> selectedMonthMap = stats.getSelectedBySkidYearMonth();
         Map<String, Long> pendingMap = stats.getPendingBySkid();
         Map<String, Long> judgedMap = stats.getJudgedBySkidYear();
+        Map<String, Long> reflectCumulativeBySkid = latestCumulativeCountBySkidForYear(year, allSkids);
 
         List<TeamSummary> out = new ArrayList<>();
         for (TbLmsDept leaf : leafDepts) {
@@ -293,6 +327,7 @@ public class AdminService {
                     selectedMonthMap,
                     pendingMap,
                     judgedMap,
+                    reflectCumulativeBySkid,
                     fallbackName,
                     centerName,
                     groupName,
@@ -410,11 +445,15 @@ public class AdminService {
         Map<String, Long> submittedMonthBySkid = caseService.mapSubmittedBySkidForYearMonth(allSkids, year, month);
         Map<String, Long> selectedYearMap = stats.getSelectedBySkidYear();
         Map<String, Long> selectedMonthMap = stats.getSelectedBySkidYearMonth();
-        // 인증율(%) = 해당 월 call_date 기준 1건 이상 선정된 평가대상자 수 ÷ (1~9월 스케줄 스냅샷 평가대상자 수 산술평균)
-        Double monthlyCertificationRate =
-                computeMonthlyCertificationRateByAvgEvalHeadcount(year, scopedMembers, selectedMonthMap);
+        List<String> evalTargetSkids = scopedMembers.stream()
+                .filter(AdminService::isEvalTargetMember)
+                .map(TbLmsMember::getSkid)
+                .collect(Collectors.toList());
+        Double annualCertificationRate =
+                computeAnnualCertificationRate(year, month, evalTargetSkids);
         Map<String, Long> pendingMap = stats.getPendingBySkid();
         Map<String, Long> judgedMap = stats.getJudgedBySkidYear();
+        Map<String, Long> reflectCumulativeBySkid = latestCumulativeCountBySkidForYear(year, allSkids);
 
         Map<Integer, List<TbLmsMember>> byDept = scopedMembers.stream()
                 .filter(m -> m.getDeptIdx() != null)
@@ -431,6 +470,7 @@ public class AdminService {
                         selectedMonthMap,
                         pendingMap,
                         judgedMap,
+                        reflectCumulativeBySkid,
                         null,
                         "",
                         "",
@@ -455,7 +495,7 @@ public class AdminService {
                 .currentMonth(month)
                 .monthlySubmitted(monthlySubmitted)
                 .monthlySelected(monthlySelected)
-                .monthlyCertificationRate(monthlyCertificationRate)
+                .annualCertificationRate(annualCertificationRate)
                 .monthlyTrend(monthlyTrend)
                 .teams(teams)
                 .build();
@@ -479,7 +519,7 @@ public class AdminService {
                 .currentMonth(month)
                 .monthlySubmitted(0L)
                 .monthlySelected(0L)
-                .monthlyCertificationRate(null)
+                .annualCertificationRate(null)
                 .monthlyTrend(monthlyTrend)
                 .teams(List.of())
                 .build();
@@ -502,6 +542,7 @@ public class AdminService {
             Map<String, Long> selectedMonthMap,
             Map<String, Long> pendingMap,
             Map<String, Long> judgedMap,
+            Map<String, Long> reflectCumulativeBySkid,
             String teamNameFallback,
             String centerName,
             String groupName,
@@ -530,6 +571,10 @@ public class AdminService {
                 .mapToLong(m -> selectedMonthMap.getOrDefault(m.getSkid(), 0L))
                 .sum();
 
+        long teamReflectCumulative = teamSkids.stream()
+                .mapToLong(s -> reflectCumulativeBySkid.getOrDefault(s, 0L))
+                .sum();
+
         double avg = members.isEmpty() ? 0.0 : (double) teamTotal / members.size();
 
         List<MemberSummary> memberSummaries = members.stream()
@@ -550,6 +595,13 @@ public class AdminService {
 
         int evalTargetMemberCount =
                 (int) members.stream().filter(AdminService::isEvalTargetMember).count();
+        int certifiedEvalTargets = (int) members.stream()
+                .filter(AdminService::isEvalTargetMember)
+                .filter(m -> reflectCumulativeBySkid.getOrDefault(m.getSkid(), 0L) >= 1)
+                .count();
+        Double certificationRate = evalTargetMemberCount == 0
+                ? null
+                : Math.round(1000.0 * certifiedEvalTargets / evalTargetMemberCount) / 10.0;
 
         return TeamSummary.builder()
                 .id(deptIdx)
@@ -563,6 +615,9 @@ public class AdminService {
                 .avgSelected(Math.round(avg * 10.0) / 10.0)
                 .monthlySubmitted(teamMonthlySubmitted)
                 .monthlySelected(teamMonthlySelected)
+                .reflectCumulativeTotal(teamReflectCumulative)
+                .certifiedEvalTargetCount(certifiedEvalTargets)
+                .certificationRate(certificationRate)
                 .pendingCount(teamPending)
                 .judgedCount(teamJudged)
                 .members(memberSummaries)
@@ -585,7 +640,20 @@ public class AdminService {
 
         String teamName = members.get(0).getDeptName();
 
-        List<String> skids = members.stream()
+        List<TbLmsMember> evalTargets = members.stream()
+                .filter(AdminService::isEvalTargetMember)
+                .collect(Collectors.toList());
+        if (evalTargets.isEmpty()) {
+            return TeamDetailResponse.builder()
+                    .team(TeamDetailResponse.TeamInfo.builder()
+                            .id(deptIdx)
+                            .name(teamName)
+                            .build())
+                    .members(List.of())
+                    .build();
+        }
+
+        List<String> skids = evalTargets.stream()
                 .map(TbLmsMember::getSkid)
                 .collect(Collectors.toList());
 
@@ -594,8 +662,9 @@ public class AdminService {
         Map<String, Long> selectedYearMap = caseService.mapSelectedBySkidForYear(skids, year);
         Map<String, Long> selectedMonthMap = caseService.mapSelectedBySkidForYearMonth(skids, year, month);
         Map<String, Long> pendingMap = caseService.mapPendingBySkid(skids);
+        Map<String, Long> reflectCumulativeBySkid = latestCumulativeCountBySkidForYear(year, skids);
 
-        Map<String, TbLmsMember> memberMap = members.stream()
+        Map<String, TbLmsMember> memberMap = evalTargets.stream()
                 .collect(Collectors.toMap(TbLmsMember::getSkid, m -> m));
 
         List<CaseResponse> allCases = caseService.getCasesBySkids(skids, memberMap::get);
@@ -603,7 +672,7 @@ public class AdminService {
         Map<String, List<CaseResponse>> casesBySkid = allCases.stream()
                 .collect(Collectors.groupingBy(CaseResponse::getSkid));
 
-        List<TeamDetailResponse.MemberDetail> memberDetails = members.stream()
+        List<TeamDetailResponse.MemberDetail> memberDetails = evalTargets.stream()
                 .map(m -> TeamDetailResponse.MemberDetail.builder()
                         .id(m.getSkid())
                         .name(m.getMbName())
@@ -612,6 +681,7 @@ public class AdminService {
                         .totalSelected(selectedYearMap.getOrDefault(m.getSkid(), 0L))
                         .monthlySubmitted(submittedMonthMap.getOrDefault(m.getSkid(), 0L))
                         .monthlySelected(selectedMonthMap.getOrDefault(m.getSkid(), 0L))
+                        .reflectCumulativeCount(reflectCumulativeBySkid.getOrDefault(m.getSkid(), 0L))
                         .monthlyLimit(MONTHLY_LIMIT)
                         .pendingCount(pendingMap.getOrDefault(m.getSkid(), 0L))
                         .cases(casesBySkid.getOrDefault(m.getSkid(), List.of()))
@@ -628,17 +698,15 @@ public class AdminService {
     }
 
     /**
-     * 전체 센터 KPI 「이번 달 인증율」: 스코프 내 평가대상자 중 이번 달 1건 이상 선정된 인원 ÷
-     * {@code tb_you_incentive_month_stat} 에서 해당 연도 1~9월에 기록된 월별 평가대상자 수의 산술평균.
-     * 스냅샷이 없으면 null.
+     * 전체 센터 KPI 「연간 인증률」: 해당 연도 {@code tb_you_incentive_reflect} 에서
+     * {@code cumulative_count >= 1} 인 스코프 내 평가대상자 수 ÷
+     * {@code tb_you_incentive_month_stat} 해당 연 1월~현재월까지 기록된 {@code eval_target_count} 산술평균 × 100.
+     * 스냅샷이 없거나 평균이 0이면 null.
      */
-    private Double computeMonthlyCertificationRateByAvgEvalHeadcount(
-            int year,
-            List<TbLmsMember> scopedMembers,
-            Map<String, Long> selectedMonthMap) {
+    private Double computeAnnualCertificationRate(int year, int currentMonth, List<String> evalTargetSkids) {
         List<TbYouIncentiveMonthStat> snapshots =
                 incentiveMonthStatRepository.findByReflectYearAndReflectMonthBetweenOrderByReflectMonth(
-                        year, 1, 9);
+                        year, 1, currentMonth);
         if (snapshots.isEmpty()) {
             return null;
         }
@@ -649,10 +717,9 @@ public class AdminService {
         if (avgHead <= 0.0) {
             return null;
         }
-        long certifiedPeople = scopedMembers.stream()
-                .filter(AdminService::isEvalTargetMember)
-                .filter(m -> selectedMonthMap.getOrDefault(m.getSkid(), 0L) >= 1)
-                .count();
+        long certifiedPeople = evalTargetSkids.isEmpty()
+                ? 0L
+                : incentiveReflectRepository.countDistinctSkidsCertifiedForYear(year, evalTargetSkids);
         return Math.round(1000.0 * certifiedPeople / avgHead) / 10.0;
     }
 
