@@ -614,8 +614,9 @@ public class CsSatisfactionService {
     /**
      * AI 인사이트 프롬프트용 Good/Bad 멘트.
      * {@code tb_you_cs} 중 평가시간({@link TbCsSatisfactionRecord#getUseYn()})이 {@code Y}이고
-     * 상담일시가 해당 연·월인 행만 풀로 두고, 그중 상담일시({@code evalDate})의 날짜가 가장 최근인 날에
-     * 해당하는 행만 포함합니다. 상담일시가 없는 행만 있으면 풀 전체를 사용합니다.
+     * 상담일시가 해당 연·월인 행만 풀로 두고, 그중 상담일시({@code evalDate}) 날짜가
+     * 풀 내 가장 최근일부터 역으로 10일(해당일 포함) 이내인 행만 포함합니다.
+     * 상담일시가 없는 행만 있으면 풀 전체를 사용합니다.
      */
     public MemberCsInsightPromptMentsResponse getMemberInsightPromptMents(String skid, int year, int month) {
         if (skid == null || skid.isBlank()) {
@@ -636,6 +637,7 @@ public class CsSatisfactionService {
                     .goodMents(List.of())
                     .badMents(List.of())
                     .latestConsultDate(null)
+                    .mentWindowStartDate(null)
                     .build();
         }
 
@@ -647,11 +649,18 @@ public class CsSatisfactionService {
 
         List<TbCsSatisfactionRecord> slice;
         String latestConsultDateStr = null;
+        String mentWindowStartStr = null;
         if (maxConsultDay.isPresent()) {
             LocalDate d = maxConsultDay.get();
             latestConsultDateStr = d.format(DateTimeFormatter.ISO_LOCAL_DATE);
+            LocalDate windowStart = d.minusDays(9);
+            mentWindowStartStr = windowStart.format(DateTimeFormatter.ISO_LOCAL_DATE);
             slice = pool.stream()
-                    .filter(r -> r.getEvalDate() != null && r.getEvalDate().toLocalDate().equals(d))
+                    .filter(r -> r.getEvalDate() != null)
+                    .filter(r -> {
+                        LocalDate day = r.getEvalDate().toLocalDate();
+                        return !day.isAfter(d) && !day.isBefore(windowStart);
+                    })
                     .collect(Collectors.toList());
         } else {
             slice = pool;
@@ -661,6 +670,7 @@ public class CsSatisfactionService {
                 .goodMents(collectDistinctComments(slice, true))
                 .badMents(collectDistinctComments(slice, false))
                 .latestConsultDate(latestConsultDateStr)
+                .mentWindowStartDate(mentWindowStartStr)
                 .build();
     }
 

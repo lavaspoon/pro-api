@@ -87,7 +87,7 @@ public class MemberController {
     }
 
     /**
-     * AI 인사이트 프롬프트용 멘트 — 평가시간 적용 건만, 해당 월 중 상담일이 가장 최근인 날짜 행만
+     * AI 인사이트 프롬프트용 멘트 — 평가시간 적용 건만, 해당 월 풀 중 상담(평가)일 최신일부터 역으로 10일 구간
      * GET /api/member/satisfaction/ai-insight-ments?skid=&year=&month=
      */
     @GetMapping("/satisfaction/ai-insight-ments")

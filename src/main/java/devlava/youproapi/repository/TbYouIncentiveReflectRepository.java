@@ -28,6 +28,13 @@ public interface TbYouIncentiveReflectRepository extends JpaRepository<TbYouInce
     List<TbYouIncentiveReflect> findByReflectYearAndSkidIn(
             Integer reflectYear, Collection<String> skids);
 
+    /**
+     * 특정 반영 연·월에 스코프 구성원의 인센티브 반영 행 일괄 조회
+     * ({@code reflected_count} 합산용, 구성원당 최대 1행).
+     */
+    List<TbYouIncentiveReflect> findByReflectYearAndReflectMonthAndSkidIn(
+            Integer reflectYear, Integer reflectMonth, Collection<String> skids);
+
     /** 특정 연도·월 이전의 누적 반영 건수 합계 (해당 월 미포함) */
     @Query("""
            SELECT COALESCE(SUM(r.reflectedCount), 0)

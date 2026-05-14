@@ -16,7 +16,7 @@ import java.time.LocalDate;
  * <ul>
  *   <li>전월 부서 스킬 CS 만족도 목표 달성 시에만 해당 월 선정 건수가 누적(인증) 반영된다.</li>
  *   <li>만족도 달성했으나 선정 건이 0이면 인센티브 지급 없음, 등급(누적)만 유지된다.</li>
- *   <li>실행 시 해당 월 반영 대상 평가대상자 인원을 {@code tb_you_incentive_month_stat}에 기록한다.</li>
+ *   <li>실행 시 각 2depth 센터별로 해당 월 반영 대상 평가대상자 인원을 {@code tb_you_incentive_month_stat}에 기록한다.</li>
  * </ul>
  *
  * <pre>

@@ -1,12 +1,13 @@
 package devlava.youproapi.service;
 
 import devlava.youproapi.domain.TbCsSatisfactionRecord;
-import devlava.youproapi.domain.TbCsSatisfactionSkillTarget;
 import devlava.youproapi.domain.TbLmsDept;
 import devlava.youproapi.domain.TbLmsMember;
+import devlava.youproapi.config.YouproAdminProperties;
 import devlava.youproapi.domain.TbYouIncentiveMonthStat;
 import devlava.youproapi.domain.TbYouIncentiveReflect;
 import devlava.youproapi.dto.MemberHomeResponse;
+import devlava.youproapi.support.AdminDeptScope;
 import devlava.youproapi.repository.TbCsSatisfactionRecordRepository;
 import devlava.youproapi.repository.TbCsSatisfactionSkillTargetRepository;
 import devlava.youproapi.repository.TbLmsDeptRepository;
@@ -65,6 +66,7 @@ public class IncentiveReflectService {
     private final TbYouProCaseRepository             caseRepository;
     private final TbYouIncentiveReflectRepository     reflectRepository;
     private final TbYouIncentiveMonthStatRepository   monthStatRepository;
+    private final YouproAdminProperties               adminProperties;
 
     // ────────────────────────────────────────────────────────────────
     // 외부 조회 API (MemberService에서 사용)
@@ -184,12 +186,13 @@ public class IncentiveReflectService {
             return;
         }
 
-        saveEvalTargetSnapshot(year, month, targets.size());
+        // ── 1b. 부서 트리(센터별 평가대상 스냅샷용) ───────────────────────
+        List<TbLmsDept> allDepts = deptRepository.findAllWithParentFetched();
+        saveEvalTargetSnapshotsPerCenter(year, month, targets, allDepts);
 
         List<String> skids = targets.stream().map(TbLmsMember::getSkid).collect(Collectors.toList());
 
-        // ── 2. 부서 정보 일괄 로드 ────────────────────────────────────
-        List<TbLmsDept> allDepts = deptRepository.findAll();
+        // ── 2. 부서 정보(스킬 해석) — 이미 로드됨 ────────────────────────
         Map<Integer, TbLmsDept> deptById = allDepts.stream()
                 .collect(Collectors.toMap(TbLmsDept::getDeptId, d -> d, (a, b) -> a));
 
@@ -227,17 +230,33 @@ public class IncentiveReflectService {
     }
 
     /**
-     * 해당 연·월 반영 실행 시점의 YOU 평가대상자 인원을 저장한다 (통계용).
+     * 설정된 각 2depth 센터 서브트리별로, 해당 시점 YOU 평가대상자 인원을 {@code tb_you_incentive_month_stat} 에 저장한다.
      */
-    private void saveEvalTargetSnapshot(int year, int month, int evalTargetCount) {
+    private void saveEvalTargetSnapshotsPerCenter(
+            int year, int month, List<TbLmsMember> targets, List<TbLmsDept> allDepts) {
+        for (Integer rootId : adminProperties.getSecondDepthDeptIds()) {
+            if (rootId == null) {
+                continue;
+            }
+            Set<Integer> subtree = AdminDeptScope.collectSubtreeDeptIds(allDepts, List.of(rootId));
+            int count = (int) targets.stream()
+                    .filter(m -> m.getDeptIdx() != null && subtree.contains(m.getDeptIdx()))
+                    .count();
+            saveEvalTargetSnapshot(year, month, rootId, count);
+        }
+    }
+
+    private void saveEvalTargetSnapshot(int year, int month, int secondDepthDeptId, int evalTargetCount) {
         TbYouIncentiveMonthStat row = TbYouIncentiveMonthStat.builder()
                 .reflectYear(year)
                 .reflectMonth(month)
+                .secondDepthDeptId(secondDepthDeptId)
                 .evalTargetCount(evalTargetCount)
                 .processedAt(Instant.now())
                 .build();
         monthStatRepository.save(row);
-        log.info("[IncentiveReflect] 평가대상자 스냅샷 — {}년 {}월 | {}명", year, month, evalTargetCount);
+        log.info("[IncentiveReflect] 평가대상자 스냅샷 — {}년 {}월 | 센터(dept_id={}) | {}명",
+                year, month, secondDepthDeptId, evalTargetCount);
     }
 
     // ────────────────────────────────────────────────────────────────

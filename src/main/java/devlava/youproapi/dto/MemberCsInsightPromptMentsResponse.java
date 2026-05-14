@@ -16,8 +16,13 @@ public class MemberCsInsightPromptMentsResponse {
     /** 동일 조건의 부정코멘트 */
     private List<String> badMents;
     /**
-     * 풀 레코드 중 상담일시({@code evalDate})의 날짜가 가장 늦은 날(yyyy-MM-dd).
+     * 멘트 수집 구간의 끝: 풀 중 상담(평가)일시({@code evalDate})가 가장 늦은 날(yyyy-MM-dd).
      * 상담일시가 없는 행만 있으면 {@code null}(이 경우 슬라이스는 풀 전체).
      */
     private String latestConsultDate;
+    /**
+     * 멘트 수집 구간의 시작(yyyy-MM-dd). {@link #latestConsultDate}가 있을 때 그날 포함 최근 10일 구간의 첫날.
+     * 상담일시 없음으로 풀 전체를 쓸 때는 {@code null}.
+     */
+    private String mentWindowStartDate;
 }

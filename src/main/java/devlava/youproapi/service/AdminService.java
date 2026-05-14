@@ -63,7 +63,7 @@ public class AdminService {
      * 2depth 부서(설정값) 기준 하위 leaf depth 팀 목록 + 팀별 집계.
      * 부서 트리 1회 + 구성원 IN 1회 + 통계 배치 2회 — N+1 없음.
      *
-     * @param secondDepthDeptId null 이면 설정된 모든 2depth(5·6·7) 하위 leaf 팀을 합집합
+     * @param secondDepthDeptId null 이면 설정된 모든 2depth 하위 leaf 팀을 합집합
      */
     public AdminLeafTeamsResponse getLeafTeamsForSecondDepth(Integer secondDepthDeptId) {
         List<Integer> cfg = adminProperties.getSecondDepthDeptIds();
@@ -445,12 +445,37 @@ public class AdminService {
         Map<String, Long> submittedMonthBySkid = caseService.mapSubmittedBySkidForYearMonth(allSkids, year, month);
         Map<String, Long> selectedYearMap = stats.getSelectedBySkidYear();
         Map<String, Long> selectedMonthMap = stats.getSelectedBySkidYearMonth();
+
+        LocalDate priorMonthDate = LocalDate.of(year, month, 1).minusMonths(1);
+        int priorReflectYear = priorMonthDate.getYear();
+        int priorReflectMonth = priorMonthDate.getMonthValue();
         List<String> evalTargetSkids = scopedMembers.stream()
                 .filter(AdminService::isEvalTargetMember)
                 .map(TbLmsMember::getSkid)
+                .distinct()
                 .collect(Collectors.toList());
-        Double annualCertificationRate =
-                computeAnnualCertificationRate(year, month, evalTargetSkids);
+        Map<String, Long> priorMonthReflectBySkid = new HashMap<>();
+        if (!evalTargetSkids.isEmpty()) {
+            List<TbYouIncentiveReflect> priorReflectRows = incentiveReflectRepository
+                    .findByReflectYearAndReflectMonthAndSkidIn(
+                            priorReflectYear, priorReflectMonth, evalTargetSkids);
+            for (TbYouIncentiveReflect r : priorReflectRows) {
+                priorMonthReflectBySkid.merge(
+                        r.getSkid(), r.getReflectedCount().longValue(), Long::sum);
+            }
+        }
+
+        List<TbLmsDept> allDepts = deptRepository.findAllWithParentFetched();
+        List<AdminDashboardResponse.CenterOverviewKpi> centerOverview =
+                buildCenterOverviewFromMembers(
+                        scopedMembers,
+                        year,
+                        month,
+                        allDepts,
+                        submittedMonthBySkid,
+                        selectedMonthMap,
+                        priorMonthReflectBySkid);
+
         Map<String, Long> pendingMap = stats.getPendingBySkid();
         Map<String, Long> judgedMap = stats.getJudgedBySkidYear();
         Map<String, Long> reflectCumulativeBySkid = latestCumulativeCountBySkidForYear(year, allSkids);
@@ -486,6 +511,12 @@ public class AdminService {
                     .build());
         }
 
+        List<String> allEvalTargetSkids = scopedMembers.stream()
+                .filter(AdminService::isEvalTargetMember)
+                .map(TbLmsMember::getSkid)
+                .collect(Collectors.toList());
+        Double overallAnnualRate = computeOverallAnnualCertificationRate(year, month, allEvalTargetSkids);
+
         return AdminDashboardResponse.builder()
                 .year(year)
                 .centerAvg(Math.round(centerAvg * 10.0) / 10.0)
@@ -493,15 +524,21 @@ public class AdminService {
                 .totalSelected(totalSelected)
                 .memberCount(memberCount)
                 .currentMonth(month)
+                .priorReflectYear(priorReflectYear)
+                .priorReflectMonth(priorReflectMonth)
                 .monthlySubmitted(monthlySubmitted)
                 .monthlySelected(monthlySelected)
-                .annualCertificationRate(annualCertificationRate)
+                .overallAnnualCertificationRate(overallAnnualRate)
+                .centerOverview(centerOverview)
                 .monthlyTrend(monthlyTrend)
                 .teams(teams)
                 .build();
     }
 
     private AdminDashboardResponse emptyDashboard(int year, int month) {
+        LocalDate priorMonthDate = LocalDate.of(year, month, 1).minusMonths(1);
+        int priorReflectYear = priorMonthDate.getYear();
+        int priorReflectMonth = priorMonthDate.getMonthValue();
         List<AdminDashboardResponse.MonthlyTrendPoint> monthlyTrend = new ArrayList<>();
         for (int m = 1; m <= 12; m++) {
             monthlyTrend.add(AdminDashboardResponse.MonthlyTrendPoint.builder()
@@ -517,9 +554,19 @@ public class AdminService {
                 .totalSelected(0L)
                 .memberCount(0)
                 .currentMonth(month)
+                .priorReflectYear(priorReflectYear)
+                .priorReflectMonth(priorReflectMonth)
                 .monthlySubmitted(0L)
                 .monthlySelected(0L)
-                .annualCertificationRate(null)
+                .overallAnnualCertificationRate(null)
+                .centerOverview(buildCenterOverviewFromMembers(
+                        List.of(),
+                        year,
+                        month,
+                        deptRepository.findAllWithParentFetched(),
+                        Map.of(),
+                        Map.of(),
+                        Map.of()))
                 .monthlyTrend(monthlyTrend)
                 .teams(List.of())
                 .build();
@@ -698,15 +745,71 @@ public class AdminService {
     }
 
     /**
-     * 전체 센터 KPI 「연간 인증률」: 해당 연도 {@code tb_you_incentive_reflect} 에서
-     * {@code cumulative_count >= 1} 인 스코프 내 평가대상자 수 ÷
-     * {@code tb_you_incentive_month_stat} 해당 연 1월~현재월까지 기록된 {@code eval_target_count} 산술평균 × 100.
-     * 스냅샷이 없거나 평균이 0이면 null.
+     * {@code youpro.admin.second-depth-dept-ids} 순서대로, 스코프 구성원을 센터 루트별로 나눠 상단 KPI를 만든다.
      */
-    private Double computeAnnualCertificationRate(int year, int currentMonth, List<String> evalTargetSkids) {
+    private List<AdminDashboardResponse.CenterOverviewKpi> buildCenterOverviewFromMembers(
+            List<TbLmsMember> scopedMembers,
+            int year,
+            int month,
+            List<TbLmsDept> allDepts,
+            Map<String, Long> submittedMonthBySkid,
+            Map<String, Long> selectedMonthBySkid,
+            Map<String, Long> priorMonthReflectBySkid) {
+        Map<Integer, Integer> parentOf = new HashMap<>();
+        for (TbLmsDept d : allDepts) {
+            parentOf.put(d.getDeptId(), d.getParent() != null ? d.getParent().getDeptId() : null);
+        }
+        Set<Integer> rootSet = new HashSet<>(adminProperties.getSecondDepthDeptIds());
+        Map<Integer, String> rootNames = new HashMap<>();
+        for (TbLmsDept d : deptRepository.findAllById(adminProperties.getSecondDepthDeptIds())) {
+            rootNames.put(
+                    d.getDeptId(),
+                    d.getDeptName() != null ? d.getDeptName().trim() : String.valueOf(d.getDeptId()));
+        }
+
+        List<AdminDashboardResponse.CenterOverviewKpi> out = new ArrayList<>();
+        for (Integer rootId : adminProperties.getSecondDepthDeptIds()) {
+            if (rootId == null) {
+                continue;
+            }
+            List<String> skids = scopedMembers.stream()
+                    .filter(AdminService::isEvalTargetMember)
+                    .filter(m -> rootId.equals(resolveSecondDepthRoot(m.getDeptIdx(), parentOf, rootSet)))
+                    .map(TbLmsMember::getSkid)
+                    .collect(Collectors.toList());
+            long monthlySub = skids.stream()
+                    .mapToLong(s -> submittedMonthBySkid.getOrDefault(s, 0L))
+                    .sum();
+            long monthlySel = skids.stream()
+                    .mapToLong(s -> selectedMonthBySkid.getOrDefault(s, 0L))
+                    .sum();
+            long priorMonthReflected = skids.stream()
+                    .mapToLong(s -> priorMonthReflectBySkid.getOrDefault(s, 0L))
+                    .sum();
+            Double rate = computeAnnualCertificationRate(year, month, rootId, skids);
+            out.add(AdminDashboardResponse.CenterOverviewKpi.builder()
+                    .secondDepthDeptId(rootId)
+                    .centerName(rootNames.getOrDefault(rootId, String.valueOf(rootId)))
+                    .memberCount(skids.size())
+                    .monthlySubmitted(monthlySub)
+                    .monthlySelected(monthlySel)
+                    .priorMonthReflectedCount(priorMonthReflected)
+                    .annualCertificationRate(rate)
+                    .build());
+        }
+        return out;
+    }
+
+    /**
+     * 센터(2depth)별 「연간 인증률」: 해당 연도 {@code tb_you_incentive_reflect} 에서
+     * {@code cumulative_count >= 1} 인 해당 센터 평가대상자 수 ÷
+     * {@code tb_you_incentive_month_stat} 해당 센터·연 1월~현재월 {@code eval_target_count} 산술평균 × 100.
+     */
+    private Double computeAnnualCertificationRate(
+            int year, int currentMonth, int secondDepthDeptId, List<String> evalTargetSkids) {
         List<TbYouIncentiveMonthStat> snapshots =
-                incentiveMonthStatRepository.findByReflectYearAndReflectMonthBetweenOrderByReflectMonth(
-                        year, 1, currentMonth);
+                incentiveMonthStatRepository.findByReflectYearAndSecondDepthDeptIdAndReflectMonthBetweenOrderByReflectMonth(
+                        year, secondDepthDeptId, 1, currentMonth);
         if (snapshots.isEmpty()) {
             return null;
         }
@@ -720,6 +823,50 @@ public class AdminService {
         long certifiedPeople = evalTargetSkids.isEmpty()
                 ? 0L
                 : incentiveReflectRepository.countDistinctSkidsCertifiedForYear(year, evalTargetSkids);
+        return Math.round(1000.0 * certifiedPeople / avgHead) / 10.0;
+    }
+
+    /**
+     * 종합 연간 인증률: 스코프 전체 평가대상자 중 인증 인원 ÷
+     * 각 월(1~{@code currentMonth})에 대해 설정된 모든 센터의 해당 월 {@code eval_target_count} 합의 산술평균.
+     * 어느 월이든 한 센터라도 스냅샷이 없으면 null.
+     */
+    private Double computeOverallAnnualCertificationRate(int year, int currentMonth, List<String> allEvalSkids) {
+        if (allEvalSkids == null || allEvalSkids.isEmpty()) {
+            return null;
+        }
+        List<Integer> centerIds = adminProperties.getSecondDepthDeptIds().stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (centerIds.isEmpty()) {
+            return null;
+        }
+        List<Double> monthDenominators = new ArrayList<>();
+        for (int m = 1; m <= currentMonth; m++) {
+            int sumMonth = 0;
+            boolean complete = true;
+            for (Integer cid : centerIds) {
+                Optional<TbYouIncentiveMonthStat> row =
+                        incentiveMonthStatRepository.findByReflectYearAndReflectMonthAndSecondDepthDeptId(
+                                year, m, cid);
+                if (row.isEmpty()) {
+                    complete = false;
+                    break;
+                }
+                sumMonth += row.get().getEvalTargetCount();
+            }
+            if (complete) {
+                monthDenominators.add((double) sumMonth);
+            }
+        }
+        if (monthDenominators.isEmpty()) {
+            return null;
+        }
+        double avgHead = monthDenominators.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+        if (avgHead <= 0.0) {
+            return null;
+        }
+        long certifiedPeople = incentiveReflectRepository.countDistinctSkidsCertifiedForYear(year, allEvalSkids);
         return Math.round(1000.0 * certifiedPeople / avgHead) / 10.0;
     }
 
