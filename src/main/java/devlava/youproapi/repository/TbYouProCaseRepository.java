@@ -1,6 +1,7 @@
 package devlava.youproapi.repository;
 
 import devlava.youproapi.domain.TbYouProCase;
+import devlava.youproapi.dto.CaseSummaryProjection;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -12,6 +13,58 @@ public interface TbYouProCaseRepository extends JpaRepository<TbYouProCase, Long
 
     /** 특정 구성원의 전체 사례 (최신순) */
     List<TbYouProCase> findBySkidOrderBySubmittedAtDesc(String skid);
+
+    /**
+     * 선정 사례 요약만 조회 — {@code case_id} 등 전 컬럼 로딩을 피해
+     * 비정상 행이 있어도 홈 API가 실패하지 않도록 한다.
+     */
+    @Query("""
+           SELECT c.title AS title, c.status AS status, c.callDate AS callDate,
+                  c.submittedAt AS submittedAt
+           FROM TbYouProCase c
+           WHERE c.skid = :skid AND LOWER(c.status) = 'selected'
+           ORDER BY c.submittedAt DESC
+           """)
+    List<CaseSummaryProjection> findSelectedSummariesBySkid(@Param("skid") String skid);
+
+    /**
+     * 스코프 구성원의 해당 연도 선정 사례 제목·접수자 — 선정 처리 시각 최신순.
+     * 반환: {@code [0]=title, [1]=skid}
+     */
+    @Query(value = """
+           SELECT c.title, c.skid
+           FROM tb_you_pro_case c
+           WHERE c.skid IN (:skids)
+             AND LOWER(c.status) = 'selected'
+             AND c.judged_at IS NOT NULL
+             AND c.title IS NOT NULL
+             AND TRIM(c.title) <> ''
+             AND c.call_date IS NOT NULL
+             AND LENGTH(TRIM(c.call_date)) >= 4
+             AND SUBSTRING(c.call_date, 1, 4) = :yearStr
+           ORDER BY c.judged_at DESC
+           LIMIT :limit
+           """, nativeQuery = true)
+    List<Object[]> findRecentSelectedTitleSkidBySkids(
+            @Param("skids") Collection<String> skids,
+            @Param("yearStr") String yearStr,
+            @Param("limit") int limit);
+
+    /** 구성원의 해당 연도 선정 사례 제목 목록 — call_date 연도 기준 */
+    @Query(value = """
+           SELECT c.title
+           FROM tb_you_pro_case c
+           WHERE c.skid = :skid
+             AND LOWER(c.status) = 'selected'
+             AND c.title IS NOT NULL
+             AND TRIM(c.title) <> ''
+             AND c.call_date IS NOT NULL
+             AND LENGTH(TRIM(c.call_date)) >= 4
+             AND SUBSTRING(c.call_date, 1, 4) = :yearStr
+           """, nativeQuery = true)
+    List<String> findSelectedTitlesBySkidAndYear(
+            @Param("skid") String skid,
+            @Param("yearStr") String yearStr);
 
     /** 특정 구성원 + 상태별 사례 */
     List<TbYouProCase> findBySkidAndStatus(String skid, String status);

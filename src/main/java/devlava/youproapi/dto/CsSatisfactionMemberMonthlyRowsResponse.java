@@ -38,5 +38,7 @@ public class CsSatisfactionMemberMonthlyRowsResponse {
         private String problemResolvedYn;
         private String goodMent;
         private String badMent;
+        /** 불만족 유형: null·빈 문자열 또는 "1"~"5" */
+        private String dissatisfactionType;
     }
 }

@@ -54,5 +54,15 @@ public class CsSatisfactionCenterMonthDetailResponse {
         private Double gen5060Pct;
         private Double problemResolvedPct;
         private Double problemResolvedInverseAchievementPct;
+        /** 불만족 유형 1~5별 건수 */
+        private List<UnsatisfiedTypeCount> unsatisfiedTypeCounts;
+    }
+
+    @Getter
+    @Builder
+    public static class UnsatisfiedTypeCount {
+        private int dissatisfactionType;
+        private String label;
+        private long count;
     }
 }

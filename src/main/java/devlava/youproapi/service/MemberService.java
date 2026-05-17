@@ -4,6 +4,7 @@ import devlava.youproapi.domain.TbLmsMember;
 import devlava.youproapi.dto.MemberHomeResponse;
 import devlava.youproapi.dto.MemberSatisfactionResponse;
 import devlava.youproapi.repository.TbLmsMemberRepository;
+import devlava.youproapi.repository.TbYouProCaseRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +22,7 @@ public class MemberService {
     private static final int ANNUAL_LIMIT = 36;
 
     private final TbLmsMemberRepository memberRepository;
+    private final TbYouProCaseRepository caseRepository;
     private final CaseService caseService;
     private final AdminDeptScopeResolver deptScopeResolver;
     private final IncentiveReflectService incentiveReflectService;
@@ -54,6 +56,7 @@ public class MemberService {
 
         EvalCenterRank evalRank = computeEvalCenterTeamRank(member, year);
         IndividualRank indRank  = computeIndividualRankFromReflect(skid, year);
+        MemberHomeResponse.CertificationBoard certificationBoard = buildCertificationBoard(year);
 
         MemberSatisfactionResponse sat = csSatisfactionService.getMemberSatisfaction(skid, year, month);
 
@@ -84,6 +87,64 @@ public class MemberService {
                 .evalCenterTeamSelectedYear(evalRank.teamSelectedYear)
                 .myIndividualRank(indRank.rank)
                 .individualRankTotal(indRank.total)
+                .certificationBoard(certificationBoard)
+                .build();
+    }
+
+    private static final int CERT_BOARD_RECENT_LIMIT = 5;
+
+    /**
+     * 올해 최근 선정 5건(판정 시각 최신순) — 1위(최신)~5위, 제목·누적 인증 건수(실명 없음).
+     */
+    private MemberHomeResponse.CertificationBoard buildCertificationBoard(int year) {
+        Set<Integer> allowedDeptIds = deptScopeResolver.resolveAllowedDeptIds();
+        if (allowedDeptIds.isEmpty()) {
+            return null;
+        }
+        List<TbLmsMember> scoped = memberRepository.findByUseYnAndDeptIdxIn("Y", allowedDeptIds);
+        if (scoped.isEmpty()) {
+            return null;
+        }
+
+        List<String> skids = scoped.stream().map(TbLmsMember::getSkid).collect(Collectors.toList());
+        Map<String, Long> cumulativeBySkid = incentiveReflectService.latestCumulativeCountMapForYear(year, skids);
+
+        String yearStr = String.valueOf(year);
+        List<Object[]> rows = caseRepository.findRecentSelectedTitleSkidBySkids(
+                skids, yearStr, CERT_BOARD_RECENT_LIMIT);
+        if (rows.isEmpty()) {
+            return null;
+        }
+
+        List<MemberHomeResponse.SpotlightItem> items = new ArrayList<>();
+        int displayRank = 1;
+        for (Object[] row : rows) {
+            if (row == null || row.length < 2 || row[0] == null || row[1] == null) {
+                continue;
+            }
+            String title = String.valueOf(row[0]).trim();
+            String skid = String.valueOf(row[1]).trim();
+            if (title.isEmpty() || skid.isEmpty()) {
+                continue;
+            }
+            if (displayRank > CERT_BOARD_RECENT_LIMIT) {
+                break;
+            }
+            long cumulative = cumulativeBySkid.getOrDefault(skid, 0L);
+            items.add(MemberHomeResponse.SpotlightItem.builder()
+                    .title(title)
+                    .rank(displayRank)
+                    .cumulativeCount(cumulative)
+                    .tierName(IncentiveReflectService.tierDisplayName(cumulative))
+                    .build());
+            displayRank++;
+        }
+        if (items.isEmpty()) {
+            return null;
+        }
+
+        return MemberHomeResponse.CertificationBoard.builder()
+                .items(items)
                 .build();
     }
 

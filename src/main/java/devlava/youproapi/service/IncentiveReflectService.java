@@ -148,6 +148,38 @@ public class IncentiveReflectService {
         return map;
     }
 
+    /**
+     * 스코프 구성원별 해당 연도 최신 반영 월 {@code cumulative_count}.
+     * ({@link devlava.youproapi.service.AdminService} 랭킹과 동일 기준)
+     */
+    public Map<String, Long> latestCumulativeCountMapForYear(int year, Collection<String> skids) {
+        if (skids == null || skids.isEmpty()) {
+            return Map.of();
+        }
+        List<TbYouIncentiveReflect> rows =
+                reflectRepository.findByReflectYearAndSkidIn(year, skids);
+        Map<String, TbYouIncentiveReflect> latestRow = new HashMap<>();
+        for (TbYouIncentiveReflect r : rows) {
+            latestRow.merge(r.getSkid(), r, (a, b) ->
+                    b.getReflectMonth() >= a.getReflectMonth() ? b : a);
+        }
+        Map<String, Long> out = new HashMap<>();
+        for (String skid : skids) {
+            TbYouIncentiveReflect r = latestRow.get(skid);
+            out.put(skid, r != null ? r.getCumulativeCount().longValue() : 0L);
+        }
+        return out;
+    }
+
+    /** 만족도 달성·반영된 월(1~9) 집합 */
+    public Set<Integer> certifiedReflectMonthsForYear(String skid, int year) {
+        return reflectRepository.findBySkidAndReflectYearOrderByReflectMonth(skid, year).stream()
+                .filter(r -> "Y".equalsIgnoreCase(r.getCsTargetMet()))
+                .filter(r -> r.getReflectedCount() != null && r.getReflectedCount() > 0)
+                .map(TbYouIncentiveReflect::getReflectMonth)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
     // ────────────────────────────────────────────────────────────────
     // 핵심: 월 처리
     // ────────────────────────────────────────────────────────────────
@@ -366,6 +398,14 @@ public class IncentiveReflectService {
         if (cumulativeCount >= 10) return 50_000;
         if (cumulativeCount >= 1)  return 30_000;
         return 0;
+    }
+
+    /** 누적 인증 건수 기준 YOU PRO 등급 표시명. 0건이면 {@code null}. */
+    public static String tierDisplayName(long cumulativeCount) {
+        if (cumulativeCount >= 19) return "YOU 토피아";
+        if (cumulativeCount >= 10) return "YOU 플레이어";
+        if (cumulativeCount >= 1) return "YOU 망주";
+        return null;
     }
 
     // ────────────────────────────────────────────────────────────────

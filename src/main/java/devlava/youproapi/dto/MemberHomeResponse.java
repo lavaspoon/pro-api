@@ -100,6 +100,31 @@ public class MemberHomeResponse {
     /** 순위 산정 대상 평가대상자 총 인원 */
     private Integer individualRankTotal;
 
+    /**
+     * 전체 센터 참고 — 최근 선정 사례 제목 + 접수자 누적 인증 순위(실명 미포함).
+     * 최대 5건, 선정 처리 시각 최신순. 표시할 항목이 없으면 {@code null}.
+     */
+    private CertificationBoard certificationBoard;
+
+    @Getter
+    @Builder
+    public static class CertificationBoard {
+        /** 최대 5건 — 최근 선정 순 1~5위, 제목·누적 인증 건수 */
+        private List<SpotlightItem> items;
+    }
+
+    @Getter
+    @Builder
+    public static class SpotlightItem {
+        private String title;
+        /** 최근 선정 표시 순위 1(최신)~5 */
+        private int rank;
+        /** 해당 연도 최신 반영 월 {@code cumulative_count} */
+        private long cumulativeCount;
+        /** 누적 인증 건수 기준 등급명 (YOU 망주 등). 없으면 {@code null}. */
+        private String tierName;
+    }
+
     @Getter
     @Builder
     public static class ReflectMonthRow {

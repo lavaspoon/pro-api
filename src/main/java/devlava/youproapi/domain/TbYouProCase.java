@@ -38,8 +38,7 @@ public class TbYouProCase {
     @Column(name = "title", length = 200, nullable = false)
     private String title;
 
-    /** 응대 내용 요약 */
-    @Lob
+    /** 응대 내용 요약 — {@code @Lob} 미사용(PostgreSQL TEXT는 OID로 읽혀 long 변환 오류 발생) */
     @Column(name = "description", columnDefinition = "TEXT", nullable = false)
     private String description;
 
@@ -67,7 +66,6 @@ public class TbYouProCase {
     private String customerType;
 
     /** 판정 사유 */
-    @Lob
     @Column(name = "judgment_reason", columnDefinition = "TEXT")
     private String judgmentReason;
 
@@ -80,12 +78,10 @@ public class TbYouProCase {
     private String judgedBy;
 
     /** AI 핵심 멘트 (선택) */
-    @Lob
     @Column(name = "ai_key_phrase", columnDefinition = "TEXT")
     private String aiKeyPhrase;
 
     /** AI가 전하는 피드백 (JSON 문자열 등 저장 가능) */
-    @Lob
     @Column(name = "ai_key_point", columnDefinition = "TEXT")
     private String aiKeyPoint;
 

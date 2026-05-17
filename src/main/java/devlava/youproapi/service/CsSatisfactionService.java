@@ -163,9 +163,13 @@ public class CsSatisfactionService {
         long sat = records.stream().filter(r -> "Y".equalsIgnoreCase(r.getSatisfiedYn())).count();
         long unsat = records.stream().filter(r -> "N".equalsIgnoreCase(r.getSatisfiedYn())).count();
         long fiveMajorY = records.stream()
+                .filter(r -> "Y".equalsIgnoreCase(r.getSatisfiedYn()))
                 .filter(r -> "Y".equalsIgnoreCase(r.getFiveMajorCitiesYn()))
                 .count();
-        long gen5060Y = records.stream().filter(r -> "Y".equalsIgnoreCase(r.getGen5060Yn())).count();
+        long gen5060Y = records.stream()
+                .filter(r -> "Y".equalsIgnoreCase(r.getSatisfiedYn()))
+                .filter(r -> "Y".equalsIgnoreCase(r.getGen5060Yn()))
+                .count();
         long problemResolvedY = records.stream()
                 .filter(r -> "Y".equalsIgnoreCase(r.getProblemResolvedYn()))
                 .count();
@@ -189,8 +193,8 @@ public class CsSatisfactionService {
 
         Double actualPct = received > 0 ? round1(100.0 * sat / received) : null;
         Double unsatisfiedPct = received > 0 ? round1(100.0 * unsat / received) : null;
-        Double fiveMajorCitiesPct = received > 0 ? round1(100.0 * fiveMajorY / received) : null;
-        Double gen5060Pct = received > 0 ? round1(100.0 * gen5060Y / received) : null;
+        Double fiveMajorCitiesPct = sat > 0 ? round1(100.0 * fiveMajorY / sat) : null;
+        Double gen5060Pct = sat > 0 ? round1(100.0 * gen5060Y / sat) : null;
         Double problemResolvedPct =
                 received > 0 ? round1(100.0 * problemResolvedY / received) : null;
         Double achievement = null;
@@ -205,11 +209,11 @@ public class CsSatisfactionService {
                 .filter(Objects::nonNull)
                 .collect(Collectors.groupingBy(i -> i, Collectors.counting()));
         List<MemberSatisfactionResponse.UnsatisfiedCategory> unsatisfiedCategories = List.of(
-                buildUnsatisfiedCategory(1, "서비스 지식부족", dissCountByType),
-                buildUnsatisfiedCategory(2, "성의 없는 태도", dissCountByType),
-                buildUnsatisfiedCategory(3, "적절하지 않는 혜택 안내", dissCountByType),
-                buildUnsatisfiedCategory(4, "알아듣기 어려운 설명", dissCountByType),
-                buildUnsatisfiedCategory(5, "문의내용 이해 못함", dissCountByType)
+                buildUnsatisfiedCategory(1, DISSATISFACTION_TYPE_LABELS[0], dissCountByType),
+                buildUnsatisfiedCategory(2, DISSATISFACTION_TYPE_LABELS[1], dissCountByType),
+                buildUnsatisfiedCategory(3, DISSATISFACTION_TYPE_LABELS[2], dissCountByType),
+                buildUnsatisfiedCategory(4, DISSATISFACTION_TYPE_LABELS[3], dissCountByType),
+                buildUnsatisfiedCategory(5, DISSATISFACTION_TYPE_LABELS[4], dissCountByType)
         );
 
         Map<LocalDate, List<TbCsSatisfactionRecord>> byDay = records.stream()
@@ -264,6 +268,15 @@ public class CsSatisfactionService {
         return actualPct >= targetPct;
     }
 
+    /** 불만족 유형 1~5 라벨 (index 0=유형1 … 4=유형5) */
+    private static final String[] DISSATISFACTION_TYPE_LABELS = {
+            "서비스 지식부족",
+            "성의 없는 태도",
+            "적절하지 않는 혜택 안내",
+            "알아듣기 어려운 설명",
+            "문의내용 이해 못함",
+    };
+
     private static MemberSatisfactionResponse.UnsatisfiedCategory buildUnsatisfiedCategory(
             int type, String label, Map<Integer, Long> countMap) {
         return MemberSatisfactionResponse.UnsatisfiedCategory.builder()
@@ -271,6 +284,21 @@ public class CsSatisfactionService {
                 .label(label)
                 .count(countMap.getOrDefault(type, 0L))
                 .build();
+    }
+
+    /** Agg.dissByType → 유형 1~5 라벨·건수 리스트 (member 화면과 동일 라벨) */
+    private static List<CsSatisfactionCenterMonthDetailResponse.UnsatisfiedTypeCount>
+            buildUnsatisfiedTypeCounts(long[] dissByType) {
+        List<CsSatisfactionCenterMonthDetailResponse.UnsatisfiedTypeCount> list =
+                new ArrayList<>(5);
+        for (int i = 0; i < 5; i++) {
+            list.add(CsSatisfactionCenterMonthDetailResponse.UnsatisfiedTypeCount.builder()
+                    .dissatisfactionType(i + 1)
+                    .label(DISSATISFACTION_TYPE_LABELS[i])
+                    .count(dissByType == null ? 0L : dissByType[i])
+                    .build());
+        }
+        return list;
     }
 
     /**
@@ -336,6 +364,7 @@ public class CsSatisfactionService {
                             .problemResolvedYn(r.getProblemResolvedYn())
                             .goodMent(r.getGoodMent())
                             .badMent(r.getBadMent())
+                            .dissatisfactionType(r.getDissatisfactionType())
                             .build())
                     .collect(Collectors.toList());
             months.add(CsSatisfactionMemberMonthlyRowsResponse.MonthBucket.builder()
@@ -541,8 +570,8 @@ public class CsSatisfactionService {
                     .sampleCount((int) Math.min(n, Integer.MAX_VALUE))
                     .satisfiedPct(n > 0 ? round1(100.0 * a.sat / n) : null)
                     .dissatisfiedPct(n > 0 ? round1(100.0 * a.diss / n) : null)
-                    .fiveMajorCitiesPct(n > 0 ? round1(100.0 * a.five / n) : null)
-                    .gen5060Pct(n > 0 ? round1(100.0 * a.gen5060 / n) : null)
+                    .fiveMajorCitiesPct(a.sat > 0 ? round1(100.0 * a.five / a.sat) : null)
+                    .gen5060Pct(a.sat > 0 ? round1(100.0 * a.gen5060 / a.sat) : null)
                     .problemResolvedPct(n > 0 ? round1(100.0 * a.prob / n) : null)
                     .build());
         }
@@ -896,8 +925,8 @@ public class CsSatisfactionService {
                     ? round1(100.0 * monthAchieved / monthEligible)
                     : null;
 
-            Double fivePct = a.eval == 0 ? null : round1(100.0 * a.fiveMajor / a.eval);
-            Double genPct = a.eval == 0 ? null : round1(100.0 * a.gen5060 / a.eval);
+            Double fivePct = a.sat == 0 ? null : round1(100.0 * a.fiveMajor / a.sat);
+            Double genPct = a.sat == 0 ? null : round1(100.0 * a.gen5060 / a.sat);
             Double probPct = a.eval == 0 ? null : round1(100.0 * a.problemResolved / a.eval);
             Double probInv = problemInverseAchievementPct(probPct, problemAnnualTarget);
 
@@ -1187,9 +1216,9 @@ public class CsSatisfactionService {
                 .map(t -> t.getTargetPercent().doubleValue())
                 .orElse(null);
         List<CsSatisfactionAdminDashboardKpiResponse.ScopeAchievementRow> fiveRows = new ArrayList<>();
-        fiveRows.add(buildScopeAchievementRow("OVERALL", "종합", tgtFive, overall.eval, overall.fiveMajor));
+        fiveRows.add(buildScopeAchievementRow("OVERALL", "종합", tgtFive, overall.sat, overall.fiveMajor));
         List<CsSatisfactionAdminDashboardKpiResponse.ScopeAchievementRow> genRows = new ArrayList<>();
-        genRows.add(buildScopeAchievementRow("OVERALL", "종합", tgt5060, overall.eval, overall.gen5060));
+        genRows.add(buildScopeAchievementRow("OVERALL", "종합", tgt5060, overall.sat, overall.gen5060));
         List<CsSatisfactionAdminDashboardKpiResponse.ScopeAchievementRow> probRows = new ArrayList<>();
         probRows.add(buildScopeAchievementRow("OVERALL", "종합", tgtProb, overall.eval, overall.problemResolved));
         for (Map.Entry<Integer, ScopeAgg> e : aggByRoot.entrySet()) {
@@ -1197,8 +1226,8 @@ public class CsSatisfactionService {
             String scopeKey = String.valueOf(rootId);
             String scopeName = rootNames.getOrDefault(rootId, scopeKey);
             ScopeAgg a = e.getValue();
-            fiveRows.add(buildScopeAchievementRow(scopeKey, scopeName, tgtFive, a.eval, a.fiveMajor));
-            genRows.add(buildScopeAchievementRow(scopeKey, scopeName, tgt5060, a.eval, a.gen5060));
+            fiveRows.add(buildScopeAchievementRow(scopeKey, scopeName, tgtFive, a.sat, a.fiveMajor));
+            genRows.add(buildScopeAchievementRow(scopeKey, scopeName, tgt5060, a.sat, a.gen5060));
             probRows.add(buildScopeAchievementRow(scopeKey, scopeName, tgtProb, a.eval, a.problemResolved));
         }
 
@@ -1496,8 +1525,8 @@ public class CsSatisfactionService {
                             .map(t -> t.getTargetPercent().doubleValue())
                             .orElse(null));
             Double rate = a.eval == 0 ? null : round1(100.0 * a.sat / a.eval);
-            Double fivePctM = a.eval == 0 ? null : round1(100.0 * a.fiveMajor / a.eval);
-            Double genPctM = a.eval == 0 ? null : round1(100.0 * a.gen5060 / a.eval);
+            Double fivePctM = a.sat == 0 ? null : round1(100.0 * a.fiveMajor / a.sat);
+            Double genPctM = a.sat == 0 ? null : round1(100.0 * a.gen5060 / a.sat);
             Double probPctM = a.eval == 0 ? null : round1(100.0 * a.problemResolved / a.eval);
             Double probInvM = problemInverseAchievementPct(probPctM, problemAnnualTarget);
             memberRows.add(CsSatisfactionCenterMonthDetailResponse.MemberMonthRow.builder()
@@ -1516,6 +1545,7 @@ public class CsSatisfactionService {
                     .gen5060Pct(genPctM)
                     .problemResolvedPct(probPctM)
                     .problemResolvedInverseAchievementPct(probInvM)
+                    .unsatisfiedTypeCounts(buildUnsatisfiedTypeCounts(a.dissByType))
                     .build());
         }
         for (Map.Entry<String, Agg> e : bySkid.entrySet()) {
@@ -1533,8 +1563,8 @@ public class CsSatisfactionService {
                             .map(t -> t.getTargetPercent().doubleValue())
                             .orElse(null));
             Double rate = a.eval == 0 ? null : round1(100.0 * a.sat / a.eval);
-            Double fivePctM = a.eval == 0 ? null : round1(100.0 * a.fiveMajor / a.eval);
-            Double genPctM = a.eval == 0 ? null : round1(100.0 * a.gen5060 / a.eval);
+            Double fivePctM = a.sat == 0 ? null : round1(100.0 * a.fiveMajor / a.sat);
+            Double genPctM = a.sat == 0 ? null : round1(100.0 * a.gen5060 / a.sat);
             Double probPctM = a.eval == 0 ? null : round1(100.0 * a.problemResolved / a.eval);
             Double probInvM = problemInverseAchievementPct(probPctM, problemAnnualTarget);
             memberRows.add(CsSatisfactionCenterMonthDetailResponse.MemberMonthRow.builder()
@@ -1553,6 +1583,7 @@ public class CsSatisfactionService {
                     .gen5060Pct(genPctM)
                     .problemResolvedPct(probPctM)
                     .problemResolvedInverseAchievementPct(probInvM)
+                    .unsatisfiedTypeCounts(buildUnsatisfiedTypeCounts(a.dissByType))
                     .build());
         }
 
@@ -1565,8 +1596,8 @@ public class CsSatisfactionService {
                 .thenComparing(CsSatisfactionCenterMonthDetailResponse.MemberMonthRow::getSkid));
 
         Double totalRate = total.eval == 0 ? null : round1(100.0 * total.sat / total.eval);
-        Double fivePctT = total.eval == 0 ? null : round1(100.0 * total.fiveMajor / total.eval);
-        Double genPctT = total.eval == 0 ? null : round1(100.0 * total.gen5060 / total.eval);
+        Double fivePctT = total.sat == 0 ? null : round1(100.0 * total.fiveMajor / total.sat);
+        Double genPctT = total.sat == 0 ? null : round1(100.0 * total.gen5060 / total.sat);
         Double probPctT = total.eval == 0 ? null : round1(100.0 * total.problemResolved / total.eval);
         Double probInvT = problemInverseAchievementPct(probPctT, problemAnnualTarget);
 
@@ -1645,6 +1676,10 @@ public class CsSatisfactionService {
             a.sat++;
         } else if (isNo(rec.getSatisfiedYn())) {
             a.diss++;
+            Integer t = normalizedDissatisfactionTypeOrdinal(rec.getDissatisfactionType());
+            if (t != null && t >= 1 && t <= 5) {
+                a.dissByType[t - 1]++;
+            }
         }
         if (isYes(rec.getSatisfiedYn())) {
             if (isYes(rec.getFiveMajorCitiesYn())) {
@@ -2205,6 +2240,8 @@ public class CsSatisfactionService {
         long fiveMajor;
         long gen5060;
         long problemResolved;
+        /** 불만족 유형 1~5별 건수 (index 0=유형1 … 4=유형5) */
+        final long[] dissByType = new long[5];
     }
 
     private static final class ScopeAgg {
